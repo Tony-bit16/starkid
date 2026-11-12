@@ -27,7 +27,7 @@ Fridge/
 │  └─ src/main/
 │     ├─ AndroidManifest.xml          # 声明 POST_NOTIFICATIONS、MainActivity
 │     ├─ java/com/fridge/main/
-│     │  ├─ FridgeApplication.kt      # 懒加载 FridgeDatabase
+│     │  ├─ FridgeApplication.kt      # 懒加载数据库 + 食材 Repository 单例
 │     │  ├─ MainActivity.kt           # 唯一 Activity，edge-to-edge + Compose
 │     │  ├─ data/
 │     │  │  ├─ local/
@@ -47,6 +47,7 @@ Fridge/
 │     │  │  │     └─ RecipeWithIngredients.kt
 │     │  │  └─ repository/
 │     │  │     ├─ IngredientRepository.kt # 契约 + IngredientDraft
+│     │  │     ├─ DefaultIngredientRepository.kt # Room 事务、校验、异常包装
 │     │  │     └─ RecipeRepository.kt     # 契约 + RecipeDraft/匹配模型
 │     │  └─ ui/
 │     │     ├─ FridgeApp.kt           # Scaffold、顶栏、底部「食材库/菜谱库」导航
@@ -55,18 +56,25 @@ Fridge/
 │     │     │  └─ ScreenStateContent.kt # 四态分发，复用 components 下的通用布局
 │     │     ├─ components/
 │     │     │  ├─ StateLayouts.kt     # 通用加载/空/错误态布局
-│     │     │  ├─ FridgeComponents.kt # 骨架提示条、卡片、键值行、标签
+│     │     │  ├─ FridgeComponents.kt # 提示条、卡片、键值行、标签
 │     │     │  └─ FreshnessPill.kt    # 新鲜/临期/过期统一配色
 │     │     ├─ model/
-│     │     │  └─ PreviewModels.kt    # UI 展示模型 + 静态 SampleData
+│     │     │  ├─ IngredientUiModel.kt # 食材展示模型、到期/数量派生
+│     │     │  └─ PreviewModels.kt    # 菜谱展示模型 + 静态 SampleData
 │     │     ├─ navigation/
 │     │     │  ├─ Routes.kt           # 路由常量与 id 构造函数
-│     │     │  └─ FridgeNavHost.kt    # 5 个目的地
+│     │     │  └─ FridgeNavHost.kt    # 5 个目的地；食材页注入 ViewModel
 │     │     ├─ screens/
 │     │     │  ├─ ingredients/
 │     │     │  │  ├─ IngredientListScreen.kt
+│     │     │  │  ├─ IngredientListViewModel.kt
 │     │     │  │  ├─ IngredientDetailScreen.kt
-│     │     │  │  └─ AddIngredientScreen.kt
+│     │     │  │  ├─ IngredientDetailViewModel.kt
+│     │     │  │  ├─ AddIngredientScreen.kt
+│     │     │  │  ├─ AddIngredientViewModel.kt
+│     │     │  │  ├─ IngredientForm.kt
+│     │     │  │  ├─ IngredientFormState.kt
+│     │     │  │  └─ IngredientError.kt
 │     │     │  └─ recipes/
 │     │     │     ├─ RecipeListScreen.kt
 │     │     │     └─ RecipeDetailScreen.kt
@@ -119,13 +127,15 @@ Fridge/
 - `FridgeApp.kt`：只负责 Scaffold 与导航外壳，不查询数据库。
 - `ScreenStateContent.kt`：把 `UiState` 分发到通用加载/空/错误布局，成功态交给页面内容。
 - `StateLayouts.kt`：`LoadingStateLayout`、`EmptyStateLayout`、`ErrorStateLayout`，所有数据页面复用。
-- `FridgeNavHost.kt`：本轮注入 `SampleData`；后续替换为 `viewModel()` + `collectAsStateWithLifecycle()`。
+- `FridgeNavHost.kt`：食材列表/详情/新增创建对应 ViewModel 并注入 Repository；菜谱页面仍使用 `SampleData`。
 - `data/local/`：不依赖 UI；Dao 返回 `Flow` 或 `suspend`，禁止在主线程调用。
 - `data/local/entity/IngredientType.kt`：食材品类主数据，`normalized_name` 唯一；菜谱与库存共同引用。
 - `data/local/entity/Ingredient.kt`：库存批次；`type_id` 外键到品类，`name/category` 为展示快照。
 - `data/local/entity/RecipeIngredient.kt`：复合主键 `(recipe_id, type_id)`，双外键；表达菜谱-品类多对多。
 - `data/local/relation/`：`IngredientWithType`、`RecipeIngredientWithType`、`RecipeWithIngredients`，用于一次性取回关联数据。
-- `data/repository/`：只有接口与 DTO；具体实现（事务、校验、匹配）在下一轮补充。
+- `data/repository/`：`IngredientRepository` 为契约，`DefaultIngredientRepository` 负责事务、校验、品类复用与异常包装；`RecipeRepository` 仍只有契约。
+- `ui/model/IngredientUiModel.kt`：Entity → UI 的日期/数量/剩余天数转换，Composable 不直接做时间计算。
+- `ui/screens/ingredients/`：列表、详情、新增三套 Screen + ViewModel，共用 `IngredientForm`/`IngredientFormState`；`IngredientError` 做统一中文错误映射。
 
 ### 数据模型文档
 

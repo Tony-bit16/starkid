@@ -29,59 +29,45 @@ import androidx.compose.ui.unit.dp
 import com.fridge.main.ui.common.ScreenStateContent
 import com.fridge.main.ui.common.UiState
 import com.fridge.main.ui.components.FreshnessPill
-import com.fridge.main.ui.components.SkeletonBanner
-import com.fridge.main.ui.model.IngredientPreview
+import com.fridge.main.ui.model.IngredientUiModel
 
 /**
  * 首页：冰箱食材列表。
  *
- * 当前使用静态占位数据演示列表→详情导航；[state] 已按四态设计，
- * 后续接入 ViewModel 时无需修改本页的状态分支。
+ * 数据由 [IngredientListViewModel] 从 Room 读取并通过 [state] 传入；
+ * 页面只负责四态渲染和列表→详情跳转，不直接访问数据库。
  */
 @Composable
 fun IngredientListScreen(
-    state: UiState<List<IngredientPreview>>,
+    state: UiState<List<IngredientUiModel>>,
     onRetry: () -> Unit,
     onIngredientClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.fillMaxSize()) {
-        SkeletonBanner(
-            text = "骨架演示 · 食材列表为静态占位数据，尚未接入 Room",
-        )
-        ScreenStateContent(
-            state = state,
-            onRetry = onRetry,
-            emptyTitle = "冰箱还是空的",
-            emptyMessage = "点击右上角“新增”，记录第一份食材。",
-            modifier = Modifier.weight(1f),
-        ) { items ->
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                item {
-                    Text(
-                        text = "共 ${items.size} 种食材",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                items(items = items, key = { it.id }) { item ->
-                    IngredientCard(
-                        item = item,
-                        onClick = { onIngredientClick(item.id) },
-                    )
-                }
-                item {
-                    Text(
-                        text = "以上为界面骨架的静态数据，接入数据库后自动替换。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
-                    )
-                }
+    ScreenStateContent(
+        state = state,
+        onRetry = onRetry,
+        emptyTitle = "冰箱还是空的",
+        emptyMessage = "点击右上角“新增”，记录第一份食材。",
+        modifier = modifier.fillMaxSize(),
+    ) { items ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Text(
+                    text = "共 ${items.size} 条库存",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            items(items = items, key = { it.id }) { item ->
+                IngredientCard(
+                    item = item,
+                    onClick = { onIngredientClick(item.id) },
+                )
             }
         }
     }
@@ -89,7 +75,7 @@ fun IngredientListScreen(
 
 @Composable
 private fun IngredientCard(
-    item: IngredientPreview,
+    item: IngredientUiModel,
     onClick: () -> Unit,
 ) {
     Card(
@@ -104,7 +90,7 @@ private fun IngredientCard(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 名称首字作为占位图标，避免骨架阶段引入额外图片资源。
+            // 名称首字作为占位图标，避免为每种食材引入图片资源。
             Surface(
                 modifier = Modifier.size(44.dp),
                 shape = CircleShape,

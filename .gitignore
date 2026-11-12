@@ -42,3 +42,6 @@ Thumbs.db
 
 # 日志
 *.log
+
+# 本机验收截图 / UI dump
+screenshots/

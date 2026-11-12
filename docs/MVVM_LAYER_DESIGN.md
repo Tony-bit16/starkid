@@ -1,7 +1,7 @@
 # MVVM 全链路分层设计
 
-> 第二轮只定义结构与接口，不写具体业务实现。页面仍使用 `SampleData` 占位，
-> 下一轮再把 ViewModel / Repository 接到真实 Room 数据。
+> 第二轮定义结构与接口；第四轮已按本文实现食材模块的 Repository 与 3 个 ViewModel。
+> 菜谱仍使用 `SampleData`，其 Repository/ViewModel 留给后续轮次。
 
 ## 1. 分层与依赖方向
 
@@ -197,19 +197,19 @@ interface IngredientRepository {
 }
 ```
 
-后续 `DefaultIngredientRepository` 的实现要点：
+`DefaultIngredientRepository` 已按以下要点实现：
 
 1. `addIngredient` / `updateIngredient` 校验：
-   - 名称、分类、单位 `trim()` 后非空；
-   - `shelfLifeDays > 0`；
-   - `quantity >= 0`；
-   - `storedAt <= now`（允许当天）。
+   - 名称、分类、单位 `trim()` 后非空；名称≤30、分类≤20、单位≤10；
+   - `shelfLifeDays` 1–36500；
+   - `quantity > 0` 且 ≤ 1,000,000；
+   - `storedAt > 0` 且 `<= now`。
 2. `normalize(name)` → `typeDao.findByNormalizedName()`；不存在则插入
    `IngredientType`，唯一索引冲突时回查（并发安全）。
 3. 在 `db.withTransaction { ... }` 中完成“查/建品类 + 写库存”。
-4. `storedAt` 统一由调用方传入；新增页默认 `System.currentTimeMillis()`。
-5. 错误映射成 `Result.failure(AppError.Validation(...))`，不把 `SQLiteException`
-   直接抛给 UI。
+4. `storedAt` 统一由调用方传入；新增页默认为本地当天 00:00。
+5. 错误以 `Result.failure(Throwable)` 返回，由 `IngredientError.toIngredientMessage()`
+   映射成中文；不把 `SQLiteException` 直接抛给 UI。
 
 ### 5.2 RecipeRepository
 
@@ -481,11 +481,11 @@ sealed class AppError : Exception() {
 
 | 异常 | 用户文案 |
 | --- | --- |
-| `SQLiteException` | 本地数据读写失败，请重试 |
-| `SecurityException` | 没有读取权限，请检查应用签名/权限 |
-| `IOException` | 文件读写失败，请更换位置后重试 |
-| 校验失败 | 具体字段提示（如“保质期必须大于 0”） |
-| 记录不存在 | 该记录已被删除 |
+| `IllegalArgumentException` | 业务校验的具体中文（如“保质期需为 1–36500 天”） |
+| `NoSuchElementException` | “食材不存在或已被删除” |
+| `SQLiteConstraintException` | “数据冲突，请检查食材名称后重试” |
+| `SQLiteException` | “数据库操作失败，请稍后重试” |
+| 其它 `Throwable` | 页面兜底文案（如“食材加载失败，请重试”） |
 
 原则：
 
@@ -493,35 +493,22 @@ sealed class AppError : Exception() {
 - `Error` 状态必须提供“重试”；重试由 ViewModel 重新触发查询。
 - 非致命错误用 Snackbar，不把整页切到 Error（例如删除失败但列表还在）。
 
-## 9. 依赖组装（后续）
+## 9. 依赖组装
 
-本轮不引入 Hilt，保持可读性。下一轮可在 `FridgeApplication` 中手工组装：
+食材模块已手工组装，不引入 Hilt：
 
 ```kotlin
 class FridgeApplication : Application() {
     val database by lazy { FridgeDatabase.getInstance(this) }
 
-    val ingredientRepository by lazy {
-        DefaultIngredientRepository(
-            db = database,
-            ingredientDao = database.ingredientDao(),
-            typeDao = database.ingredientTypeDao(),
-            ioDispatcher = Dispatchers.IO,
-        )
-    }
-
-    val recipeRepository by lazy {
-        DefaultRecipeRepository(
-            db = database,
-            recipeDao = database.recipeDao(),
-            typeDao = database.ingredientTypeDao(),
-            ioDispatcher = Dispatchers.IO,
-        )
+    val ingredientRepository: IngredientRepository by lazy {
+        DefaultIngredientRepository(databaseProvider = { database })
     }
 }
 ```
 
-ViewModel 通过 `viewModel(factory = ...)` 或自定义 `ViewModelProvider.Factory` 获取依赖；
+ViewModel 由 `FridgeNavHost` 用 `viewModel(factory = ...)` 创建，Repository 从
+`applicationContext as FridgeApplication` 取得。菜谱 Repository 的组装方式后续沿用同一模式。
 不要在 Composable 中直接 `new` Repository。
 
 ## 10. 测试计划
@@ -541,10 +528,12 @@ ViewModel 通过 `viewModel(factory = ...)` 或自定义 `ViewModelProvider.Fact
 
 - 数据表 v2（品类主数据 + 库存 + 菜谱 + 多对多关联）。
 - Repository 接口与 Draft/Match 模型。
-- 本文档中的 ViewModel 契约与 UI 状态模型。
+- `DefaultIngredientRepository`：事务、校验、品类复用、异常包装。
+- `IngredientListViewModel`、`AddIngredientViewModel`、`IngredientDetailViewModel`。
+- 食材列表/详情/新增页面接入 Room 与四态 UI。
+- 本文档中的菜谱 ViewModel 契约与 UI 状态模型仍作为后续实现依据。
 
 未完成（下一轮）：
 
-- Repository 实现类、ViewModel 实现类、依赖注入。
-- 页面从 `SampleData` 切换到真实 Flow。
-- 通知、匹配算法、Provider、CSV 写文件。
+- `RecipeRepository` 实现、菜谱 ViewModel、菜谱页面接真实数据。
+- 菜谱匹配算法、通知、Provider、CSV 写文件。

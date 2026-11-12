@@ -11,7 +11,7 @@
 
 ## 当前阶段
 
-**第三轮：搭建主 App 导航骨架与基础页面 UI 框架。只做 UI 与页面跳转，不接 Room、不写业务逻辑。**
+**第四轮：食材模块接入 Room，完成本地增删改查持久化。**
 
 已经落地：
 
@@ -19,22 +19,22 @@
 - Room v2：`ingredient_types`、`ingredients`、`recipes`、`recipe_ingredients` 四张表。
 - 食材品类主数据与菜谱-食材多对多关联；`Ingredient` 保留名称/分类快照。
 - `MIGRATION_1_2`：从 v1 的名称关联迁移到品类外键，含去重与索引重建。
-- `IngredientRepository` / `RecipeRepository` 接口草稿与表单 DTO（无实现）。
-- 主 App 底部导航「食材库 / 菜谱库」、5 个页面骨架与列表 → 详情跳转。
-- 通用加载态、空态、错误态布局，统一由 `ScreenStateContent` 应用到数据页面。
-- 主 App 5 个页面、看板 2 个页面的静态 UI 与四态组件。
-- 7 个页面的 UI 原型说明（布局、交互、状态、跳转）。
+- 食材模块完整分层：`Entity` → `Dao` → `IngredientRepository`（含 `DefaultIngredientRepository`）→ `ViewModel` → Compose UI。
+- 食材列表读取 Room Flow，具备加载/空/错误/成功四态与重试；已移除食材静态占位。
+- 新增食材表单校验与持久化；食材详情支持编辑、删除，列表随 Room Flow 自动刷新。
+- 数据库/写入异常统一转为中文提示；模拟数据库不可读时进入“加载失败 + 重试”错误态，App 不崩溃。
+- 主 App 底部导航「食材库 / 菜谱库」、5 个页面与列表 → 详情跳转。
+- 通用加载态、空态、错误态布局，统一由 `ScreenStateContent` 应用。
+- 菜谱列表/详情仍使用静态 `SampleData`，页面保留“骨架演示”提示。
+- 看板 2 个页面仍为静态演示 UI；7 个页面的 UI 原型文档保持有效。
 
 明确尚未实现：
 
-- Repository / ViewModel 的具体实现。
-- 页面接入真实数据；页面仍展示 `SampleData`。
-- 新增食材保存、编辑、删除。
-- 菜谱匹配、到期通知、权限运行时申请。
+- 菜谱的 Room 读写、菜谱-食材维护、匹配算法。
+- 到期通知、运行时通知权限申请与拒绝降级。
 - 主 App 只读 ContentProvider。
 - 看板读取真实数据、CSV 实际写入。
-
-页面上的橙色“骨架演示”条用于区分静态占位数据，接入真实数据后应删除对应提示。
+- 图片、搜索、筛选等增强交互。
 
 ## 技术栈
 
@@ -84,14 +84,14 @@ dashboard_module/build/outputs/apk/debug/dashboard_module-debug.apk
 
 ## 下一阶段建议顺序
 
-1. Repository 实现 + 主 App ViewModel + 食材 CRUD（含四态与表单校验）。
-2. 菜谱数据与“能做 / 部分能做”匹配。
-3. 到期提醒（通知渠道 + 权限申请 + 拒绝降级）。
-4. 主 App 只读 ContentProvider + signature 权限。
-5. 看板接入真实统计与 SAF CSV 导出。
+1. 菜谱 Room 数据、列表/详情接真实数据与“能做 / 部分能做”匹配。
+2. 到期提醒（通知渠道 + 权限申请 + 拒绝降级）。
+3. 主 App 只读 ContentProvider + signature 权限。
+4. 看板接入真实统计与 SAF CSV 导出。
+5. 食材搜索、分类筛选、数量快捷调整等增强。
 
 ## 本次提交
 
 ```text
-feat: 搭建主App导航骨架，完成基础页面UI框架
+feat: 接入Room，实现食材本地增删改查持久化
 ```

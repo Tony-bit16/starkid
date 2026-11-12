@@ -25,7 +25,7 @@
 
 ## 2. 主 App 分层
 
-目标结构（当前已落地 UI、data/local 与 Repository 接口，尚未接实现）：
+目标结构（食材模块已按此落地；菜谱与看板仍为后续）：
 
 ```text
 UI（Compose Screen）
@@ -45,19 +45,21 @@ SQLite（fridge.db）
 
 ### 2.1 本轮现状
 
-- `ui/`：Compose 页面、导航、四态组件、静态展示模型。
+- `ui/`：Compose 页面、导航、四态组件；食材列表/详情/新增已接 ViewModel 与 Room。
 - `data/local/`：Entity、Dao、Database、Relation；数据库版本 2，已加入食材品类主数据与菜谱-食材多对多关联。
-- `data/repository/`：只定义 `IngredientRepository`、`RecipeRepository` 契约与表单 DTO，没有实现。
-- 没有 ViewModel；页面仍直接引用 `SampleData`，所有列表均带“骨架演示”提示。
+- `data/repository/`：`IngredientRepository` 契约 + `DefaultIngredientRepository` 实现（事务、校验、品类复用、异常包装）；`RecipeRepository` 仍只有契约。
+- ViewModel：`IngredientListViewModel`、`IngredientDetailViewModel`、`AddIngredientViewModel`，通过 `StateFlow` 暴露四态或表单/操作状态。
+- 菜谱列表/详情仍直接引用 `SampleData`，带“骨架演示”提示；看板仍为静态演示。
+- `FridgeApplication` 懒加载数据库，并暴露 `ingredientRepository` 单例。
 
-### 2.2 后续实现约束
+### 2.2 实现约束
 
 - ViewModel 暴露 `StateFlow<UiState<T>>`，UI 用 `collectAsStateWithLifecycle()` 收集。
-- 一次性事件（导航、Snackbar）使用 `Channel` / `SharedFlow`，不要放进 `UiState`。
+- 单次结果（保存成功 id、删除成功、保存成功提示）用状态位表达，由页面 `LaunchedEffect` 消费一次；后续若出现并发事件流，再改为 `Channel` / `SharedFlow`。
 - Repository 是唯一允许拼装多个 DAO 结果、做业务校验的层。
 - UI 不直接调用 Dao，不直接使用 `Cursor`，不持有 `Context` 做数据库操作。
 - 主线程不做 IO：Room 的 `suspend` / `Flow` 查询由 Room 的执行器调度；文件、CSV、Provider 查询显式使用 `Dispatchers.IO`。
-- `FridgeApplication` 只懒加载数据库，不做阻塞初始化。
+- `FridgeApplication` 只懒加载数据库与 Repository，不做阻塞初始化。
 
 ## 3. 数据模型与关系
 
@@ -191,11 +193,12 @@ sealed interface UiState<out T> {
 
 - `Empty` 与 `Success(emptyList())` 区分：空态需要引导文案，列表为空不等于错误。
 - `Error.message` 必须是可直接展示的中文，不把异常堆栈抛给用户。
-- 错误映射建议：
-  - `SQLiteException` → “本地数据读取失败，请重试”。
-  - `SecurityException` → “没有读取权限，请检查应用签名/权限”。
-  - `IOException` → “文件读写失败，请更换位置后重试”。
-- 重试由 ViewModel 重新触发查询，不在 Composable 中直接调用 Repository。
+- 食材模块的实际映射在 `IngredientError.kt`：
+  - `IllegalArgumentException` / `NoSuchElementException` → 业务校验/记录不存在的中文；
+  - `SQLiteConstraintException` → “数据冲突，请检查食材名称后重试”；
+  - `SQLiteException` → “数据库操作失败，请稍后重试”；
+  - 其它异常 → 页面兜底文案。
+- 重试由 ViewModel 重新订阅 Flow（`retrySignal`）或重新调用查询，不在 Composable 中直接调用 Repository。
 
 ## 6. 权限与降级
 
@@ -230,6 +233,7 @@ sealed interface UiState<out T> {
 | minSdk / compileSdk | 24 / 36（minor 1） |
 | Build Tools | 36.0.0 |
 | Java / JVM target | 17 |
+| Core library desugaring | 2.1.5（`java.time` 在 minSdk 24 可用） |
 
 依赖仓库：Aliyun 镜像优先，google/mavenCentral 兜底；JitPack 只对 `com.github.PhilJay` 开放，避免其他依赖误走 JitPack。
 

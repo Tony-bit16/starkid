@@ -38,6 +38,14 @@ interface IngredientDao {
     @Query("SELECT * FROM ingredients WHERE id = :ingredientId")
     fun observeById(ingredientId: Long): Flow<Ingredient?>
 
+    /**
+     * 按 id 读取单条食材（挂起查询）。
+     *
+     * 编辑时需要在事务内先读出旧记录，再更新；Flow 版本不适合一次性读取。
+     */
+    @Query("SELECT * FROM ingredients WHERE id = :ingredientId LIMIT 1")
+    suspend fun findById(ingredientId: Long): Ingredient?
+
     /** 按名称模糊搜索（用于首页搜索框）。 */
     @Query("SELECT * FROM ingredients WHERE name LIKE '%' || :keyword || '%' ORDER BY stored_at DESC")
     fun observeByName(keyword: String): Flow<List<Ingredient>>
@@ -78,15 +86,15 @@ interface IngredientDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(ingredient: Ingredient): Long
 
-    /** 全量更新食材。 */
+    /** 全量更新食材，返回受影响行数（0 表示 id 不存在）。 */
     @Update
-    suspend fun update(ingredient: Ingredient)
+    suspend fun update(ingredient: Ingredient): Int
 
     /** 删除食材。 */
     @Delete
     suspend fun delete(ingredient: Ingredient)
 
-    /** 按 id 删除，详情页“删除”操作使用。 */
+    /** 按 id 删除，返回受影响行数（0 表示记录已不存在）。 */
     @Query("DELETE FROM ingredients WHERE id = :ingredientId")
-    suspend fun deleteById(ingredientId: Long)
+    suspend fun deleteById(ingredientId: Long): Int
 }

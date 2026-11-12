@@ -257,9 +257,9 @@ GROUP BY r.id, r.name;
 
 | 规则 | 责任层 | 处理 |
 | --- | --- | --- |
-| `name/category/unit` 去空格后非空 | Repository | 返回字段错误 |
-| `shelf_life_days > 0` | Repository | 拒绝保存 |
-| `quantity >= 0`（库存） | Repository | 拒绝保存 |
+| `name/category/unit` 去空格后非空，名称≤30、分类≤20、单位≤10 | Repository | 返回字段错误 |
+| `shelf_life_days` 1–36500 | Repository | 拒绝保存 |
+| `quantity > 0`（库存） | Repository | 拒绝保存 |
 | `quantity > 0`（菜谱需求） | Repository | 拒绝保存 |
 | `stored_at` 不晚于当前时间 | Repository | 允许当天，未来时间拒绝 |
 | `normalized_name` 唯一 | DB + Repository | 冲突时回查已有品类 |
