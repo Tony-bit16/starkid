@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 图表分类配色；与主 App 的绿/橙语义色保持一致。 -->
+    <color name="chart_green">#2F6B4F</color>
+    <color name="chart_orange">#D9822B</color>
+    <color name="chart_red">#BA1A1A</color>
+    <color name="chart_blue">#3F6F8F</color>
+    <color name="chart_gray">#8A9388</color>
+</resources>
