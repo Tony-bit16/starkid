@@ -62,7 +62,7 @@
 - JDK 17 或 21（本机使用 Android Studio 自带 JBR 21）
 - Android SDK Platform 36.1（对应 AGP 的 `compileSdk = 36` + `compileSdkMinor = 1`）
 - Android SDK Build Tools 36.0.0
-- 首次构建需要网络下载 Gradle 8.13 与依赖
+- 首次构建需要网络下载 Gradle 8.13 与依赖；Wrapper 已配置阿里云镜像，避免从 `services.gradle.org` 慢速下载
 
 ```powershell
 $env:JAVA_HOME = "D:\Android Studio\jbr"
