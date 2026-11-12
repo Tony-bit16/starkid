@@ -25,7 +25,7 @@
 
 ## 2. 主 App 分层
 
-目标结构（本轮只落地 UI 与 data/local 骨架）：
+目标结构（当前已落地 UI、data/local 与 Repository 接口，尚未接实现）：
 
 ```text
 UI（Compose Screen）
@@ -46,8 +46,9 @@ SQLite（fridge.db）
 ### 2.1 本轮现状
 
 - `ui/`：Compose 页面、导航、四态组件、静态展示模型。
-- `data/local/`：Entity、Dao、Database、Relation。
-- 没有 ViewModel / Repository；页面直接引用 `SampleData`，所有列表均带“骨架演示”提示。
+- `data/local/`：Entity、Dao、Database、Relation；数据库版本 2，已加入食材品类主数据与菜谱-食材多对多关联。
+- `data/repository/`：只定义 `IngredientRepository`、`RecipeRepository` 契约与表单 DTO，没有实现。
+- 没有 ViewModel；页面仍直接引用 `SampleData`，所有列表均带“骨架演示”提示。
 
 ### 2.2 后续实现约束
 
@@ -61,30 +62,52 @@ SQLite（fridge.db）
 ## 3. 数据模型与关系
 
 ```text
-Recipe 1 ──── N RecipeIngredient
-                     │
-                     │ ingredient_name（逻辑匹配，不设外键）
-                     ▼
-                 Ingredient（库存，可多条同名）
+IngredientType 1 ──── N Ingredient（库存批次）
+       │
+       │ 1
+       │
+       N
+RecipeIngredient N ──── 1 Recipe
+       │
+       └─ 复合主键 (recipe_id, type_id)，表达 Recipe ↔ IngredientType 多对多
 ```
 
-### 3.1 为什么 RecipeIngredient 不外键到 Ingredient
+四张表：
 
-菜谱是“做法模板”，可以先于库存存在。若 `recipe_ingredients.ingredient_name` 外键到 `ingredients.name`：
+| 表 | 角色 | 关键约束 |
+| --- | --- | --- |
+| `ingredient_types` | 食材品类主数据（食材字典） | `normalized_name` 唯一；`category` 索引 |
+| `ingredients` | 库存批次（一次入库一条） | `type_id` 外键 → 品类（RESTRICT）；`name/category` 为展示快照 |
+| `recipes` | 菜谱主表 | `name` 索引 |
+| `recipe_ingredients` | 菜谱所需食材关联 | 复合主键 `(recipe_id, type_id)`；双外键；`quantity/unit` |
 
-- 新增菜谱前必须先有对应库存，业务上不合理。
-- 同名食材有多条库存记录，外键目标不唯一。
-- 删除最后一条库存会破坏菜谱。
+### 3.1 为什么引入 IngredientType
 
-因此只在 `recipe_id` 上设外键（级联删除），食材名称在匹配时做规范化比较。匹配假设：
+`Ingredient` 的字段包含入库时间、保质期、数量，这些是“批次”属性，不是食材本身的属性。同名食材可能分多次入库，因此 `ingredients` 天然会有多条同名记录。
 
-- 名称去首尾空格后精确匹配；暂不做别名、同义词。
-- 数量只做 `> 0` 判断，暂不做单位换算。
-- 全部所需食材都有库存 → 能做；部分有 → 部分能做，并列出缺失项。
+菜谱需要的是一个稳定的“食材品类”引用：
 
-### 3.2 到期时间
+- 菜谱可以先于库存存在，不能要求先买过才能建菜谱；
+- 菜谱不能绑定到某一批会被吃完/删除的库存；
+- 同一菜谱的“番茄”应匹配冰箱里所有番茄批次，而不是某一条。
 
-不落库，统一按：
+因此把“食材品类”抽成 `ingredient_types`，`RecipeIngredient` 同时外键到 `recipes` 与 `ingredient_types`，形成真正的多对多；`Ingredient` 也外键到品类，库存与菜谱共享同一套品类身份。
+
+`Ingredient.name/category` 保留为入库时的展示快照，原因：
+
+- 品类改名后，历史入库记录仍能显示当时的名称；
+- 列表查询不必每次 JOIN 品类表；
+- 快照字段不参与匹配，匹配与统计以 `type_id` 为准。
+
+### 3.2 匹配与到期规则
+
+匹配假设：
+
+- 以 `type_id` 匹配，不做名称/别名的运行时模糊匹配；
+- 数量按品类汇总所有批次（`SUM(quantity)`），只做 `> 0` 判断，暂不做单位换算；
+- 全部所需食材都有可用库存 → 能做；部分有 → 部分能做，并列出缺失项。
+
+到期时间不落库，统一按：
 
 ```text
 expiresAt = stored_at + shelf_life_days * 86_400_000L
@@ -92,11 +115,18 @@ expiresAt = stored_at + shelf_life_days * 86_400_000L
 
 查询使用同一表达式，避免“到期日”和“剩余天数”两份数据不一致。时间戳按 UTC 毫秒存储，展示时使用设备本地时区格式化。
 
-### 3.3 数据库版本
+### 3.3 数据库版本与迁移
 
-- 当前 `version = 1`，`exportSchema = true`，schema 输出到 `refrigerator_main/schemas/`。
+- 当前 `version = 2`，`exportSchema = true`，schema 输出到 `refrigerator_main/schemas/`。
+- v1 → v2 的 `MIGRATION_1_2` 会：
+  1. 建 `ingredient_types` 与唯一/分类索引；
+  2. 从旧 `ingredients` 与 `recipe_ingredients` 抽取品类（`lower(trim(name))` 规范化，菜谱独有品类记“未分类”）；
+  3. 给旧表补可空 `type_id` 并回填；
+  4. 重建 `ingredients`（`type_id NOT NULL` + 外键）与 `recipe_ingredients`（复合主键 + 双外键，按 `MIN(rowid)` 去重）；
+  5. 重建索引。
 - 禁止 `fallbackToDestructiveMigration()`：食材是用户数据，升级必须写 `Migration`。
 - 每次改表都提交生成的 schema JSON，并添加 Migration 测试。
+- 旧数据同名但分类/单位不同的记录，迁移时按“先出现者”合并；后续可在设置页提供品类合并/别名，不影响本轮表结构。
 
 ## 4. 跨 App 数据契约（后续实现）
 
@@ -131,7 +161,7 @@ expiresAt = stored_at + shelf_life_days * 86_400_000L
 | URI | 内容 |
 | --- | --- |
 | `content://com.fridge.main.provider/stats/summary` | 食材品种数、临期数、过期数 |
-| `content://com.fridge.main.provider/stats/categories` | 分类、品种数、库存总量、临期数 |
+| `content://com.fridge.main.provider/stats/categories` | 分类、品类数、库存总量、临期数 |
 | `content://com.fridge.main.provider/stats/expiring` | 临期/过期食材的聚合行 |
 
 约束：
@@ -215,8 +245,9 @@ sealed interface UiState<out T> {
 
 ## 9. 已知风险 / 待确认
 
-- 菜谱所需食材目前按名称精确匹配，后续可能需要别名表或“食材字典”。
+- 菜谱所需食材已改用 `type_id` 关联品类，但品类规范化目前只做 `trim + lower`；别名、同义词与“番茄/西红柿”这类口语差异尚未处理。
 - 数量单位不统一（个 / 克 / 毫升），匹配阶段暂不换算。
+- 品类合并/改名会影响历史快照展示；改名时是否同步更新 `Ingredient.name/category` 需产品确认。
 - 通知调度策略（每天几点、提前几天）尚未定；实现前需确认产品规则。
 - 看板与主 App 的 release 签名必须统一，否则 signature 权限会拒绝。
 - `stored_at + days * 86400000` 按固定 24 小时计算；若未来支持跨时区/夏令时，需要改为按本地日历日计算。

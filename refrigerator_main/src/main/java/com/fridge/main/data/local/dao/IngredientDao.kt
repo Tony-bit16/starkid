@@ -42,6 +42,15 @@ interface IngredientDao {
     @Query("SELECT * FROM ingredients WHERE name LIKE '%' || :keyword || '%' ORDER BY stored_at DESC")
     fun observeByName(keyword: String): Flow<List<Ingredient>>
 
+    /**
+     * 观察某个食材品类的全部库存批次。
+     *
+     * 菜谱匹配时先按 type_id 聚合该品类的可用数量，再与菜谱所需数量比较；
+     * 这里返回批次明细，聚合查询由 Repository 负责。
+     */
+    @Query("SELECT * FROM ingredients WHERE type_id = :typeId ORDER BY stored_at ASC")
+    fun observeByType(typeId: Long): Flow<List<Ingredient>>
+
     /** 观察指定时间窗口内到期的食材，供保质期提醒与看板“即将过期”统计使用。 */
     @Query(
         """

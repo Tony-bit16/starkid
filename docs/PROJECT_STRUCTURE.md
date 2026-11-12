@@ -15,28 +15,39 @@ Fridge/
 ├─ docs/
 │  ├─ REQUIREMENTS.md                 # 需求清单、页面清单、权限与验收
 │  ├─ ARCHITECTURE.md                 # MVVM、数据边界、Provider 契约、测试策略
+│  ├─ DATA_MODEL.md                   # v2 表结构、ER 图、迁移与匹配 SQL
+│  ├─ MVVM_LAYER_DESIGN.md            # Entity/Dao/Repository/ViewModel 契约
+│  ├─ UI_PROTOTYPE.md                 # 7 个页面布局、交互、状态与跳转
 │  └─ PROJECT_STRUCTURE.md            # 本文件
 │
 ├─ refrigerator_main/                 # 主 App：冰箱管家
 │  ├─ build.gradle.kts                # com.fridge.main，Compose + Room + KSP
 │  ├─ proguard-rules.pro
-│  ├─ schemas/                        # Room 导出的 schema（version 1 生成后提交）
+│  ├─ schemas/                        # Room 导出 schema（v1、v2 均提交）
 │  └─ src/main/
 │     ├─ AndroidManifest.xml          # 声明 POST_NOTIFICATIONS、MainActivity
 │     ├─ java/com/fridge/main/
 │     │  ├─ FridgeApplication.kt      # 懒加载 FridgeDatabase
 │     │  ├─ MainActivity.kt           # 唯一 Activity，edge-to-edge + Compose
-│     │  ├─ data/local/
-│     │  │  ├─ FridgeDatabase.kt      # @Database version=1，单例
-│     │  │  ├─ dao/
-│     │  │  │  ├─ IngredientDao.kt    # 食材增删改查、到期查询
-│     │  │  │  └─ RecipeDao.kt        # 菜谱与所需食材关联查询
-│     │  │  ├─ entity/
-│     │  │  │  ├─ Ingredient.kt       # 食材库存实体
-│     │  │  │  ├─ Recipe.kt           # 菜谱实体
-│     │  │  │  └─ RecipeIngredient.kt # 菜谱-所需食材关联实体
-│     │  │  └─ relation/
-│     │  │     └─ RecipeWithIngredients.kt
+│     │  ├─ data/
+│     │  │  ├─ local/
+│     │  │  │  ├─ FridgeDatabase.kt   # @Database version=2，MIGRATION_1_2
+│     │  │  │  ├─ dao/
+│     │  │  │  │  ├─ IngredientDao.kt # 食材批次增删改查、到期/品类查询
+│     │  │  │  │  ├─ IngredientTypeDao.kt # 食材品类查询/写入
+│     │  │  │  │  └─ RecipeDao.kt     # 菜谱与所需食材关联查询
+│     │  │  │  ├─ entity/
+│     │  │  │  │  ├─ IngredientType.kt # 食材品类（字典），normalized_name 唯一
+│     │  │  │  │  ├─ Ingredient.kt    # 食材库存批次，type_id 外键
+│     │  │  │  │  ├─ Recipe.kt        # 菜谱实体
+│     │  │  │  │  └─ RecipeIngredient.kt # 菜谱-品类多对多关联
+│     │  │  │  └─ relation/
+│     │  │  │     ├─ IngredientWithType.kt
+│     │  │  │     ├─ RecipeIngredientWithType.kt
+│     │  │  │     └─ RecipeWithIngredients.kt
+│     │  │  └─ repository/
+│     │  │     ├─ IngredientRepository.kt # 契约 + IngredientDraft
+│     │  │     └─ RecipeRepository.kt     # 契约 + RecipeDraft/匹配模型
 │     │  └─ ui/
 │     │     ├─ FridgeApp.kt           # Scaffold、顶栏、底部导航、路由标题
 │     │     ├─ common/
@@ -107,6 +118,17 @@ Fridge/
 - `FridgeApp.kt`：只负责 Scaffold 与导航外壳，不查询数据库。
 - `FridgeNavHost.kt`：本轮注入 `SampleData`；后续替换为 `viewModel()` + `collectAsStateWithLifecycle()`。
 - `data/local/`：不依赖 UI；Dao 返回 `Flow` 或 `suspend`，禁止在主线程调用。
+- `data/local/entity/IngredientType.kt`：食材品类主数据，`normalized_name` 唯一；菜谱与库存共同引用。
+- `data/local/entity/Ingredient.kt`：库存批次；`type_id` 外键到品类，`name/category` 为展示快照。
+- `data/local/entity/RecipeIngredient.kt`：复合主键 `(recipe_id, type_id)`，双外键；表达菜谱-品类多对多。
+- `data/local/relation/`：`IngredientWithType`、`RecipeIngredientWithType`、`RecipeWithIngredients`，用于一次性取回关联数据。
+- `data/repository/`：只有接口与 DTO；具体实现（事务、校验、匹配）在下一轮补充。
+
+### 数据模型文档
+
+- `DATA_MODEL.md`：v2 ER 图、四张表字段/索引/外键、迁移步骤、匹配 SQL 草案。
+- `MVVM_LAYER_DESIGN.md`：分层职责、DAO/Repository/ViewModel 契约、线程与错误映射。
+- `UI_PROTOTYPE.md`：页面布局、组件、交互、状态矩阵、权限降级与可访问性。
 
 ### 看板
 

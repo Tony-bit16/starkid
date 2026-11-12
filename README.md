@@ -11,20 +11,22 @@
 
 ## 当前阶段
 
-**本轮只完成项目初始化、实体设计与项目骨架，不写业务逻辑。**
+**第二轮：完善数据模型与页面原型设计。只做设计与契约，不写业务逻辑、不写页面代码。**
 
 已经落地：
 
 - Gradle 双模块工程、版本目录、Gradle Wrapper。
-- Room 实体 / Dao / Database 草稿：`Ingredient`、`Recipe`、`RecipeIngredient`。
-- 主 App 5 个页面与列表 → 详情导航；看板 2 个页面。
-- 加载 / 空 / 错误 / 成功四态 UI 基础组件。
-- MPAndroidChart 饼图、折线图组件（静态示意数据）。
-- 需求清单、页面清单、架构说明、目录结构文档。
+- Room v2：`ingredient_types`、`ingredients`、`recipes`、`recipe_ingredients` 四张表。
+- 食材品类主数据与菜谱-食材多对多关联；`Ingredient` 保留名称/分类快照。
+- `MIGRATION_1_2`：从 v1 的名称关联迁移到品类外键，含去重与索引重建。
+- `IngredientRepository` / `RecipeRepository` 接口草稿与表单 DTO（无实现）。
+- 主 App 5 个页面、看板 2 个页面的静态 UI 与四态组件。
+- 7 个页面的 UI 原型说明（布局、交互、状态、跳转）。
 
 明确尚未实现：
 
-- ViewModel / Repository 业务层。
+- Repository / ViewModel 的具体实现。
+- 页面接入真实数据；页面仍展示 `SampleData`。
 - 新增食材保存、编辑、删除。
 - 菜谱匹配、到期通知、权限运行时申请。
 - 主 App 只读 ContentProvider。
@@ -46,6 +48,9 @@
 
 - [需求清单与页面清单](docs/REQUIREMENTS.md)
 - [架构与关键决策](docs/ARCHITECTURE.md)
+- [数据模型与迁移](docs/DATA_MODEL.md)
+- [MVVM 分层契约](docs/MVVM_LAYER_DESIGN.md)
+- [页面 UI 原型](docs/UI_PROTOTYPE.md)
 - [项目目录结构](docs/PROJECT_STRUCTURE.md)
 
 ## 构建
@@ -77,7 +82,7 @@ dashboard_module/build/outputs/apk/debug/dashboard_module-debug.apk
 
 ## 下一阶段建议顺序
 
-1. Repository + ViewModel + 主 App 食材 CRUD（含四态与表单校验）。
+1. Repository 实现 + 主 App ViewModel + 食材 CRUD（含四态与表单校验）。
 2. 菜谱数据与“能做 / 部分能做”匹配。
 3. 到期提醒（通知渠道 + 权限申请 + 拒绝降级）。
 4. 主 App 只读 ContentProvider + signature 权限。
@@ -86,5 +91,5 @@ dashboard_module/build/outputs/apk/debug/dashboard_module-debug.apk
 ## 本次提交
 
 ```text
-feat: 项目初始化，完成实体设计与需求清单
+feat: 完善数据库模型，完成页面原型设计
 ```
