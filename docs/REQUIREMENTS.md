@@ -135,10 +135,10 @@ Recipe 1 ─── N RecipeIngredient N ─── 1 IngredientType
 
 | 页面 | 路由 | 入口 | 目标内容 |
 | --- | --- | --- | --- |
-| 首页食材列表 | `ingredients` | 启动页 / 底部“食材” | 搜索、状态筛选、本周概览、食材卡片、新增入口 |
+| 首页食材列表 | `ingredients` | 启动页 / 底部“食材库” | 搜索、状态筛选、本周概览、食材卡片、新增入口 |
 | 食材详情 | `ingredients/detail/{ingredientId}` | 点击食材卡片 | 名称/分类/数量/入库/到期、保质期进度、匹配提示、删除 |
 | 新增食材 | `ingredients/new` | 首页右上角“新增” | 名称、分类、入库时间、保质期、数量、单位、到期预览、保存 |
-| 菜谱列表 | `recipes` | 底部“菜谱” | 搜索、匹配筛选、菜谱卡片、缺失食材摘要 |
+| 菜谱列表 | `recipes` | 底部“菜谱库” | 搜索、匹配筛选、菜谱卡片、缺失食材摘要 |
 | 菜谱详情 | `recipes/detail/{recipeId}` | 点击菜谱卡片 | 匹配徽标、所需食材及备齐状态、分步做法 |
 
 导航结构：
@@ -152,7 +152,7 @@ recipes (一级)
 └─ recipes/detail/{id}
 ```
 
-- 一级页面显示底部导航（食材 / 菜谱）。
+- 一级页面显示底部导航（食材库 / 菜谱库）。
 - 详情、新增页显示顶部返回按钮。
 - 详情路由使用 `.../detail/{id}`，避免与 `ingredients/new` 的通配匹配冲突。
 - 切换 tab 使用 `saveState` / `restoreState`，保留滚动位置。
@@ -181,7 +181,7 @@ recipes (一级)
 
 现有基础：
 
-- 主 App：`UiState` + `ScreenStateContent`，列表/详情按四态渲染。
+- 主 App：`UiState` + `ScreenStateContent`，四态布局由 `StateLayouts` 统一提供，列表/详情按四态渲染。
 - 看板：`DashboardUiState` + `DashboardStateContent`。
 
 页面状态矩阵：
@@ -222,7 +222,9 @@ recipes (一级)
 - 看板只持有读权限；主 App 是唯一写入方。
 - 无权限/未安装/签名不一致时，看板进入错误态并给出中文提示，不崩溃。
 
-## 7. 本轮验收清单
+## 7. 验收清单
+
+### 第二轮：数据模型与原型
 
 - [x] v2 四张表：`ingredient_types`、`ingredients`、`recipes`、`recipe_ingredients`。
 - [x] 主键、外键、唯一索引、查询索引完整。
@@ -233,10 +235,18 @@ recipes (一级)
 - [x] 双模块 `assembleDebug` 编译通过（2026-11-12 构建验证）。
 - [x] Room schema `2.json` 已生成并提交。
 
+### 第三轮：主 App 导航骨架
+
+- [x] Navigation Compose 导航图覆盖 5 个主 App 页面。
+- [x] 底部导航切换「食材库 / 菜谱库」，保留各自返回栈与滚动状态。
+- [x] 食材列表 → 食材详情、菜谱列表 → 菜谱详情的参数化跳转。
+- [x] 通用加载态、空态、错误态布局封装并接入列表/详情。
+- [x] 未接入 Room、ViewModel 与业务逻辑，页面仍使用静态 `SampleData`。
+
 ## 8. 明确不做（本轮）
 
 - 不实现 Repository / ViewModel 的具体业务逻辑。
-- 不实现页面代码改动；现有页面保持静态骨架。
+- 不接入 Room 数据与业务逻辑；页面保持静态骨架。
 - 不实现食材编辑/删除的保存逻辑。
 - 不实现菜谱新增/编辑/匹配算法。
 - 不实现到期通知调度与运行时权限申请。

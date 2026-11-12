@@ -26,7 +26,7 @@
 └────────────────────┘  └────────────────────────┘
 ```
 
-- 一级页（食材/菜谱）显示底部导航；详情/新增页隐藏底栏，顶部显示返回。
+- 一级页（食材库/菜谱库）显示底部导航；详情/新增页隐藏底栏，顶部显示返回。
 - 顶栏由 `FridgeApp` 统一提供，标题按当前 destination 切换。
 - 系统返回键：详情/新增返回上一级；一级页退出 App。
 - 切换底部 tab 使用 `saveState` / `restoreState`，保留各自滚动位置。
@@ -79,7 +79,7 @@
 
 ```text
 ┌────────────────────────────────────────────┐
-│ 我的冰箱                         [+ 新增]  │  TopAppBar
+│ 食材库                           [+ 新增]  │  TopAppBar
 ├────────────────────────────────────────────┤
 │ [🔍 搜索食材名称…]                          │  SearchBar
 │ [全部] [临期] [过期] [蔬菜] [肉蛋] …        │  FilterChips
@@ -107,7 +107,7 @@
 
 | 组件 | 内容/行为 |
 | --- | --- |
-| `TopAppBar` | 标题“我的冰箱”；右侧“+ 新增”图标按钮 → `ingredients/new` |
+| `TopAppBar` | 标题“食材库”；右侧“+ 新增”图标按钮 → `ingredients/new` |
 | `SearchBar` | 单行输入，占位“搜索食材名称”；输入后 300ms 防抖过滤 |
 | `FilterChip` | 全部/临期/过期 + 分类；单选；选中高亮 |
 | `SummaryCard` | 总批次、临期数、过期数；点击“临期”等同筛选临期 |
@@ -503,6 +503,7 @@ Idle → Preparing（查询数据） → Writing（写文件） → Success(path
 | `SkeletonBanner` | 骨架提示条 | 已有，后续删除 |
 | `SectionCard` / `LabeledValue` | 详情信息卡 | 已有 |
 | `ScreenStateContent` | 主 App 四态容器 | 已有 |
+| `LoadingStateLayout` / `EmptyStateLayout` / `ErrorStateLayout` | 通用加载/空/错误布局 | 已有 |
 | `DashboardStateContent` | 看板四态容器 | 已有 |
 | `MetricCard` | 看板指标 | 已有 |
 | `ChartCard` | 图表容器 | 已有 |
@@ -510,7 +511,6 @@ Idle → Preparing（查询数据） → Writing（写文件） → Success(path
 | `RecipeCard` | 菜谱列表卡 | 后续新增 |
 | `FormField` | 表单标签/错误/输入 | 后续新增 |
 | `ConfirmDialog` | 删除确认 | 后续新增 |
-| `EmptyState` / `ErrorState` | 统一空/错态 | 后续可复用现有组件 |
 
 ## 11. 交互与可访问性检查
 

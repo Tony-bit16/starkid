@@ -38,10 +38,10 @@ fun FridgeApp() {
     val isTopLevel = isIngredients || isRecipes
 
     val title = when (currentRoute) {
-        Routes.INGREDIENTS -> "我的冰箱"
+        Routes.INGREDIENTS -> "食材库"
         Routes.ADD_INGREDIENT -> "新增食材"
         Routes.INGREDIENT_DETAIL -> "食材详情"
-        Routes.RECIPES -> "菜谱"
+        Routes.RECIPES -> "菜谱库"
         Routes.RECIPE_DETAIL -> "菜谱详情"
         else -> "冰箱管家"
     }
@@ -86,7 +86,7 @@ fun FridgeApp() {
                                 style = MaterialTheme.typography.titleMedium,
                             )
                         },
-                        label = { Text("食材") },
+                        label = { Text("食材库") },
                     )
                     NavigationBarItem(
                         selected = isRecipes,
@@ -97,7 +97,7 @@ fun FridgeApp() {
                                 style = MaterialTheme.typography.titleMedium,
                             )
                         },
-                        label = { Text("菜谱") },
+                        label = { Text("菜谱库") },
                     )
                 }
             }

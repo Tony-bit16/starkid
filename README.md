@@ -11,7 +11,7 @@
 
 ## 当前阶段
 
-**第二轮：完善数据模型与页面原型设计。只做设计与契约，不写业务逻辑、不写页面代码。**
+**第三轮：搭建主 App 导航骨架与基础页面 UI 框架。只做 UI 与页面跳转，不接 Room、不写业务逻辑。**
 
 已经落地：
 
@@ -20,6 +20,8 @@
 - 食材品类主数据与菜谱-食材多对多关联；`Ingredient` 保留名称/分类快照。
 - `MIGRATION_1_2`：从 v1 的名称关联迁移到品类外键，含去重与索引重建。
 - `IngredientRepository` / `RecipeRepository` 接口草稿与表单 DTO（无实现）。
+- 主 App 底部导航「食材库 / 菜谱库」、5 个页面骨架与列表 → 详情跳转。
+- 通用加载态、空态、错误态布局，统一由 `ScreenStateContent` 应用到数据页面。
 - 主 App 5 个页面、看板 2 个页面的静态 UI 与四态组件。
 - 7 个页面的 UI 原型说明（布局、交互、状态、跳转）。
 
@@ -91,5 +93,5 @@ dashboard_module/build/outputs/apk/debug/dashboard_module-debug.apk
 ## 本次提交
 
 ```text
-feat: 完善数据库模型，完成页面原型设计
+feat: 搭建主App导航骨架，完成基础页面UI框架
 ```

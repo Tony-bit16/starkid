@@ -49,11 +49,12 @@ Fridge/
 │     │  │     ├─ IngredientRepository.kt # 契约 + IngredientDraft
 │     │  │     └─ RecipeRepository.kt     # 契约 + RecipeDraft/匹配模型
 │     │  └─ ui/
-│     │     ├─ FridgeApp.kt           # Scaffold、顶栏、底部导航、路由标题
+│     │     ├─ FridgeApp.kt           # Scaffold、顶栏、底部「食材库/菜谱库」导航
 │     │     ├─ common/
 │     │     │  ├─ UiState.kt          # Loading/Empty/Error/Success
-│     │     │  └─ ScreenStateContent.kt
+│     │     │  └─ ScreenStateContent.kt # 四态分发，复用 components 下的通用布局
 │     │     ├─ components/
+│     │     │  ├─ StateLayouts.kt     # 通用加载/空/错误态布局
 │     │     │  ├─ FridgeComponents.kt # 骨架提示条、卡片、键值行、标签
 │     │     │  └─ FreshnessPill.kt    # 新鲜/临期/过期统一配色
 │     │     ├─ model/
@@ -116,6 +117,8 @@ Fridge/
   - `recipes`：菜谱列表（一级）。
   - `recipes/detail/{recipeId}`：菜谱详情。
 - `FridgeApp.kt`：只负责 Scaffold 与导航外壳，不查询数据库。
+- `ScreenStateContent.kt`：把 `UiState` 分发到通用加载/空/错误布局，成功态交给页面内容。
+- `StateLayouts.kt`：`LoadingStateLayout`、`EmptyStateLayout`、`ErrorStateLayout`，所有数据页面复用。
 - `FridgeNavHost.kt`：本轮注入 `SampleData`；后续替换为 `viewModel()` + `collectAsStateWithLifecycle()`。
 - `data/local/`：不依赖 UI；Dao 返回 `Flow` 或 `suspend`，禁止在主线程调用。
 - `data/local/entity/IngredientType.kt`：食材品类主数据，`normalized_name` 唯一；菜谱与库存共同引用。
