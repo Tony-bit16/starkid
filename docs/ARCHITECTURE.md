@@ -25,7 +25,7 @@
 
 ## 2. 主 App 分层
 
-目标结构（食材模块已按此落地；菜谱与看板仍为后续）：
+目标结构（食材与菜谱模块均已按此落地；看板仍为后续）：
 
 ```text
 UI（Compose Screen）
@@ -45,12 +45,13 @@ SQLite（fridge.db）
 
 ### 2.1 本轮现状
 
-- `ui/`：Compose 页面、导航、四态组件；食材列表/详情/新增已接 ViewModel 与 Room。
+- `ui/`：Compose 页面、导航、四态组件；食材与菜谱的列表/详情/新增均已接 ViewModel 与 Room。
 - `data/local/`：Entity、Dao、Database、Relation；数据库版本 2，已加入食材品类主数据与菜谱-食材多对多关联。
-- `data/repository/`：`IngredientRepository` 契约 + `DefaultIngredientRepository` 实现（事务、校验、品类复用、异常包装）；`RecipeRepository` 仍只有契约。
-- ViewModel：`IngredientListViewModel`、`IngredientDetailViewModel`、`AddIngredientViewModel`，通过 `StateFlow` 暴露四态或表单/操作状态。
-- 菜谱列表/详情仍直接引用 `SampleData`，带“骨架演示”提示；看板仍为静态演示。
-- `FridgeApplication` 懒加载数据库，并暴露 `ingredientRepository` 单例。
+- `data/repository/`：`DefaultIngredientRepository`、`DefaultRecipeRepository`，均在 Repository 层完成事务、校验、品类复用与异常包装。
+- ViewModel：食材 3 个（列表/详情/新增）、菜谱 3 个（列表/详情/新增），通过 `StateFlow` 暴露四态或表单/操作状态。
+- 菜谱新增/编辑共用 `RecipeForm`，食材清单按行动态增删；菜谱详情通过 Room Flow 自动刷新。
+- 看板仍为静态演示。
+- `FridgeApplication` 懒加载数据库，并暴露 `ingredientRepository`、`recipeRepository` 单例。
 
 ### 2.2 实现约束
 
@@ -193,9 +194,9 @@ sealed interface UiState<out T> {
 
 - `Empty` 与 `Success(emptyList())` 区分：空态需要引导文案，列表为空不等于错误。
 - `Error.message` 必须是可直接展示的中文，不把异常堆栈抛给用户。
-- 食材模块的实际映射在 `IngredientError.kt`：
+- 实际映射分别在 `IngredientError.kt` 与 `RecipeError.kt`：
   - `IllegalArgumentException` / `NoSuchElementException` → 业务校验/记录不存在的中文；
-  - `SQLiteConstraintException` → “数据冲突，请检查食材名称后重试”；
+  - `SQLiteConstraintException` → “数据冲突，请检查名称后重试”；
   - `SQLiteException` → “数据库操作失败，请稍后重试”；
   - 其它异常 → 页面兜底文案。
 - 重试由 ViewModel 重新订阅 Flow（`retrySignal`）或重新调用查询，不在 Composable 中直接调用 Repository。

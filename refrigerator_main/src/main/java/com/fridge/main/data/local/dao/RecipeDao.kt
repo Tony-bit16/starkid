@@ -36,6 +36,10 @@ interface RecipeDao {
     @Query("SELECT * FROM recipes WHERE name LIKE '%' || :keyword || '%' ORDER BY name COLLATE NOCASE ASC")
     fun observeByNameWithIngredients(keyword: String): Flow<List<RecipeWithIngredients>>
 
+    /** 按 id 查询菜谱主记录；更新前用于确认菜谱仍然存在。 */
+    @Query("SELECT * FROM recipes WHERE id = :recipeId")
+    suspend fun findRecipeById(recipeId: Long): Recipe?
+
     /** 新增菜谱主记录，返回自增主键。 */
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertRecipe(recipe: Recipe): Long
@@ -47,6 +51,15 @@ interface RecipeDao {
     /** 删除菜谱主记录；recipe_ingredients 会按外键级联删除。 */
     @Delete
     suspend fun deleteRecipe(recipe: Recipe)
+
+    /**
+     * 按 id 删除菜谱主记录，返回受影响行数。
+     *
+     * 关联明细由 `recipe_ingredients.recipe_id` 的 CASCADE 外键自动清理，
+     * 无需在 Repository 中再手动删一次。
+     */
+    @Query("DELETE FROM recipes WHERE id = :recipeId")
+    suspend fun deleteRecipeById(recipeId: Long): Int
 
     /** 新增一条菜谱所需食材明细。 */
     @Insert(onConflict = OnConflictStrategy.ABORT)

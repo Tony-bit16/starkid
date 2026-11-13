@@ -17,7 +17,7 @@ Fridge/
 │  ├─ ARCHITECTURE.md                 # MVVM、数据边界、Provider 契约、测试策略
 │  ├─ DATA_MODEL.md                   # v2 表结构、ER 图、迁移与匹配 SQL
 │  ├─ MVVM_LAYER_DESIGN.md            # Entity/Dao/Repository/ViewModel 契约
-│  ├─ UI_PROTOTYPE.md                 # 7 个页面布局、交互、状态与跳转
+│  ├─ UI_PROTOTYPE.md                 # 8 个页面布局、交互、状态与跳转
 │  └─ PROJECT_STRUCTURE.md            # 本文件
 │
 ├─ refrigerator_main/                 # 主 App：冰箱管家
@@ -27,7 +27,7 @@ Fridge/
 │  └─ src/main/
 │     ├─ AndroidManifest.xml          # 声明 POST_NOTIFICATIONS、MainActivity
 │     ├─ java/com/fridge/main/
-│     │  ├─ FridgeApplication.kt      # 懒加载数据库 + 食材 Repository 单例
+│     │  ├─ FridgeApplication.kt      # 懒加载数据库 + 食材/菜谱 Repository 单例
 │     │  ├─ MainActivity.kt           # 唯一 Activity，edge-to-edge + Compose
 │     │  ├─ data/
 │     │  │  ├─ local/
@@ -48,7 +48,8 @@ Fridge/
 │     │  │  └─ repository/
 │     │  │     ├─ IngredientRepository.kt # 契约 + IngredientDraft
 │     │  │     ├─ DefaultIngredientRepository.kt # Room 事务、校验、异常包装
-│     │  │     └─ RecipeRepository.kt     # 契约 + RecipeDraft/匹配模型
+│     │  │     ├─ RecipeRepository.kt     # 契约 + RecipeDraft/匹配模型
+│     │  │     └─ DefaultRecipeRepository.kt # 菜谱事务、关联维护、校验、异常包装
 │     │  └─ ui/
 │     │     ├─ FridgeApp.kt           # Scaffold、顶栏、底部「食材库/菜谱库」导航
 │     │     ├─ common/
@@ -60,10 +61,11 @@ Fridge/
 │     │     │  └─ FreshnessPill.kt    # 新鲜/临期/过期统一配色
 │     │     ├─ model/
 │     │     │  ├─ IngredientUiModel.kt # 食材展示模型、到期/数量派生
-│     │     │  └─ PreviewModels.kt    # 菜谱展示模型 + 静态 SampleData
+│     │     │  ├─ RecipeUiModel.kt     # 菜谱/所需食材展示模型
+│     │     │  └─ FreshnessStatus.kt   # 新鲜/临期/过期状态
 │     │     ├─ navigation/
 │     │     │  ├─ Routes.kt           # 路由常量与 id 构造函数
-│     │     │  └─ FridgeNavHost.kt    # 5 个目的地；食材页注入 ViewModel
+│     │     │  └─ FridgeNavHost.kt    # 6 个目的地；食材/菜谱页注入 ViewModel
 │     │     ├─ screens/
 │     │     │  ├─ ingredients/
 │     │     │  │  ├─ IngredientListScreen.kt
@@ -77,7 +79,14 @@ Fridge/
 │     │     │  │  └─ IngredientError.kt
 │     │     │  └─ recipes/
 │     │     │     ├─ RecipeListScreen.kt
-│     │     │     └─ RecipeDetailScreen.kt
+│     │     │     ├─ RecipeListViewModel.kt
+│     │     │     ├─ RecipeDetailScreen.kt
+│     │     │     ├─ RecipeDetailViewModel.kt
+│     │     │     ├─ AddRecipeScreen.kt
+│     │     │     ├─ AddRecipeViewModel.kt
+│     │     │     ├─ RecipeForm.kt
+│     │     │     ├─ RecipeFormState.kt
+│     │     │     └─ RecipeError.kt
 │     │     └─ theme/
 │     │        └─ Theme.kt            # 绿/橙语义色，固定配色
 │     └─ res/
@@ -123,19 +132,22 @@ Fridge/
   - `ingredients/new`：新增食材。
   - `ingredients/detail/{ingredientId}`：食材详情。
   - `recipes`：菜谱列表（一级）。
+  - `recipes/new`：新增菜谱。
   - `recipes/detail/{recipeId}`：菜谱详情。
 - `FridgeApp.kt`：只负责 Scaffold 与导航外壳，不查询数据库。
 - `ScreenStateContent.kt`：把 `UiState` 分发到通用加载/空/错误布局，成功态交给页面内容。
 - `StateLayouts.kt`：`LoadingStateLayout`、`EmptyStateLayout`、`ErrorStateLayout`，所有数据页面复用。
-- `FridgeNavHost.kt`：食材列表/详情/新增创建对应 ViewModel 并注入 Repository；菜谱页面仍使用 `SampleData`。
+- `FridgeNavHost.kt`：食材/菜谱列表、详情、新增分别创建对应 ViewModel，并从 `FridgeApplication` 注入 Repository。
 - `data/local/`：不依赖 UI；Dao 返回 `Flow` 或 `suspend`，禁止在主线程调用。
 - `data/local/entity/IngredientType.kt`：食材品类主数据，`normalized_name` 唯一；菜谱与库存共同引用。
 - `data/local/entity/Ingredient.kt`：库存批次；`type_id` 外键到品类，`name/category` 为展示快照。
 - `data/local/entity/RecipeIngredient.kt`：复合主键 `(recipe_id, type_id)`，双外键；表达菜谱-品类多对多。
 - `data/local/relation/`：`IngredientWithType`、`RecipeIngredientWithType`、`RecipeWithIngredients`，用于一次性取回关联数据。
-- `data/repository/`：`IngredientRepository` 为契约，`DefaultIngredientRepository` 负责事务、校验、品类复用与异常包装；`RecipeRepository` 仍只有契约。
+- `data/repository/`：`IngredientRepository`、`RecipeRepository` 为契约；两个 `Default*Repository` 负责事务、校验、品类复用与异常包装。
 - `ui/model/IngredientUiModel.kt`：Entity → UI 的日期/数量/剩余天数转换，Composable 不直接做时间计算。
+- `ui/model/RecipeUiModel.kt`：菜谱与所需食材的展示模型，拍平 `RecipeWithIngredients` 并按食材名排序。
 - `ui/screens/ingredients/`：列表、详情、新增三套 Screen + ViewModel，共用 `IngredientForm`/`IngredientFormState`；`IngredientError` 做统一中文错误映射。
+- `ui/screens/recipes/`：列表、详情、新增三套 Screen + ViewModel，新增/编辑共用 `RecipeForm`/`RecipeFormState`；`RecipeError` 做统一中文错误映射。
 
 ### 数据模型文档
 

@@ -4,13 +4,15 @@ import com.fridge.main.data.local.relation.RecipeWithIngredients
 import kotlinx.coroutines.flow.Flow
 
 /**
- * 菜谱仓库接口（本轮只定义契约，不提供实现）。
+ * 菜谱仓库接口。
  *
  * 职责：
- * - 组合 RecipeDao、RecipeIngredientDao 与 IngredientTypeDao；
+ * - 组合 RecipeDao 与 IngredientTypeDao；
  * - 保存菜谱时在事务内解析食材品类、写入主表与关联表；
  * - 读取时返回 [RecipeWithIngredients]，由 UI 直接渲染食材与步骤；
- * - 后续在此实现“现有库存 → 能做 / 部分能做”的匹配规则。
+ * - 匹配规则（现有库存 → 能做 / 部分能做）留到后续模块实现。
+ *
+ * 具体实现见 [DefaultRecipeRepository]。
  */
 interface RecipeRepository {
 

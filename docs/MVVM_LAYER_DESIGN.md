@@ -1,7 +1,8 @@
 # MVVM 全链路分层设计
 
-> 第二轮定义结构与接口；第四轮已按本文实现食材模块的 Repository 与 3 个 ViewModel。
-> 菜谱仍使用 `SampleData`，其 Repository/ViewModel 留给后续轮次。
+> 第二轮定义结构与接口；第四轮实现食材模块，第五轮实现菜谱模块。
+> 食材/菜谱的 Repository 与各 3 个 ViewModel 均已落地；菜谱匹配与看板统计仍为后续。
+> 本文保留目标契约，实际实现以 `com.fridge.main` 源码为准。
 
 ## 1. 分层与依赖方向
 
@@ -54,11 +55,13 @@ com.fridge.main/
 │  │     ├─ RecipeIngredientWithType.kt
 │  │     └─ RecipeWithIngredients.kt
 │  └─ repository/
-│     ├─ IngredientRepository.kt      # 本轮：接口 + Draft 模型
-│     └─ RecipeRepository.kt          # 本轮：接口 + Draft/Match 模型
+│     ├─ IngredientRepository.kt      # 接口 + Draft 模型
+│     ├─ DefaultIngredientRepository.kt
+│     ├─ RecipeRepository.kt          # 接口 + Draft/Match 模型
+│     └─ DefaultRecipeRepository.kt
 ├─ ui/
-│  ├─ model/                          # UI 展示模型（后续从 Entity 映射）
-│  ├─ viewmodel/                      # 后续：5 个主 App ViewModel
+│  ├─ model/                          # UI 展示模型（Entity → UI 映射已落地）
+│  ├─ viewmodel/                      # 6 个主 App ViewModel（食材/菜谱）
 │  ├─ screens/                        # Compose 页面
 │  ├─ components/
 │  ├─ navigation/
@@ -225,7 +228,7 @@ interface RecipeRepository {
 }
 ```
 
-后续实现要点：
+实现要点（`saveRecipe` / `deleteRecipe` 已落地；`observeMatches` 仅返回空列表）：
 
 1. `saveRecipe` 在事务中：
    - 校验菜名、步骤、每项食材名称/数量；
@@ -233,9 +236,8 @@ interface RecipeRepository {
    - 新增时 `insertRecipe` + `insertRecipeIngredients`；
    - 编辑时 `updateRecipe` + `deleteIngredientsOfRecipe` + 重新插入；
    - 返回菜谱 id。
-2. `observeMatches` 用 `DATA_MODEL.md` §6.2 的 SQL 聚合库存；
-   单位不一致时只判断“有库存”，不做换算。
-3. `RecipeMatch.missingIngredients` 用于详情页“还差：鸡蛋、葱”。
+2. `observeMatches` 本轮固定返回 `flowOf(emptyList())`；匹配算法留到下一轮。
+3. 匹配落地后，`RecipeMatch.missingIngredients` 用于详情页“还差：鸡蛋、葱”。
 
 ### 5.3 看板 StatsRepository（后续）
 
@@ -391,8 +393,8 @@ class RecipeListViewModel(
 }
 ```
 
-- 搜索按菜名过滤；匹配徽标来自 `observeMatches()`。
-- 本轮没有“新增菜谱”页面，空态引导“先去添加食材，或等待菜谱导入”。
+- 搜索、匹配徽标为后续能力；当前列表按菜名排序，卡片展示食材摘要与步数。
+- 新增/编辑共用 `RecipeForm`；列表空态引导点击右上角“新增”。
 
 ### 6.5 RecipeDetailViewModel
 
@@ -422,8 +424,8 @@ class RecipeDetailViewModel(
 ```
 
 - `steps` 按 `\n` 拆分，过滤空行；展示时重新编号，不依赖用户输入编号。
-- 食材可用性三态：`ENOUGH / SHORT / MISSING`，由匹配结果映射。
-- 没有编辑/删除入口时不要放禁用按钮，避免误导。
+- 食材可用性三态：`ENOUGH / SHORT / MISSING`，待匹配算法落地后映射。
+- 当前详情页已提供编辑、删除（二次确认）；编辑复用 `RecipeForm`。
 
 ### 6.6 DashboardViewModel（看板）
 
@@ -504,11 +506,15 @@ class FridgeApplication : Application() {
     val ingredientRepository: IngredientRepository by lazy {
         DefaultIngredientRepository(databaseProvider = { database })
     }
+
+    val recipeRepository: RecipeRepository by lazy {
+        DefaultRecipeRepository(databaseProvider = { database })
+    }
 }
 ```
 
 ViewModel 由 `FridgeNavHost` 用 `viewModel(factory = ...)` 创建，Repository 从
-`applicationContext as FridgeApplication` 取得。菜谱 Repository 的组装方式后续沿用同一模式。
+`applicationContext as FridgeApplication` 取得；食材/菜谱共用同一组装模式。
 不要在 Composable 中直接 `new` Repository。
 
 ## 10. 测试计划
@@ -522,18 +528,21 @@ ViewModel 由 `FridgeNavHost` 用 `viewModel(factory = ...)` 创建，Repository
 | Migration | `MigrationTestHelper`：v1 数据 → v2，检查品类回填、外键、索引 |
 | Dashboard | Provider 权限、Cursor 列名、CSV 转义/中文/BOM |
 
-## 11. 本轮边界
+## 11. 当前实现边界
 
 已完成：
 
 - 数据表 v2（品类主数据 + 库存 + 菜谱 + 多对多关联）。
 - Repository 接口与 Draft/Match 模型。
 - `DefaultIngredientRepository`：事务、校验、品类复用、异常包装。
-- `IngredientListViewModel`、`AddIngredientViewModel`、`IngredientDetailViewModel`。
-- 食材列表/详情/新增页面接入 Room 与四态 UI。
-- 本文档中的菜谱 ViewModel 契约与 UI 状态模型仍作为后续实现依据。
+- `DefaultRecipeRepository`：事务、菜谱/食材关联维护、校验、异常包装。
+- 食材 3 个 ViewModel、菜谱 3 个 ViewModel。
+- 食材/菜谱列表、详情、新增/编辑页面接入 Room 与四态 UI。
+- 菜谱新增/编辑共用 `RecipeForm`，支持动态食材清单与多行做法。
 
 未完成（下一轮）：
 
-- `RecipeRepository` 实现、菜谱 ViewModel、菜谱页面接真实数据。
+- 现有食材匹配菜谱的“能做 / 部分能做”算法与 `observeMatches` 实现。
+- 菜谱搜索、匹配徽标、食材可用性提示。
+- 看板真实统计数据与 CSV 导出。
 - 菜谱匹配算法、通知、Provider、CSV 写文件。

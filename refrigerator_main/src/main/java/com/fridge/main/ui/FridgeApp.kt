@@ -42,6 +42,7 @@ fun FridgeApp() {
         Routes.ADD_INGREDIENT -> "新增食材"
         Routes.INGREDIENT_DETAIL -> "食材详情"
         Routes.RECIPES -> "菜谱库"
+        Routes.ADD_RECIPE -> "新增菜谱"
         Routes.RECIPE_DETAIL -> "菜谱详情"
         else -> "冰箱管家"
     }
@@ -64,6 +65,11 @@ fun FridgeApp() {
                 actions = {
                     if (isIngredients) {
                         TextButton(onClick = { navController.navigate(Routes.ADD_INGREDIENT) }) {
+                            Text("新增")
+                        }
+                    }
+                    if (isRecipes) {
+                        TextButton(onClick = { navController.navigate(Routes.ADD_RECIPE) }) {
                             Text("新增")
                         }
                     }

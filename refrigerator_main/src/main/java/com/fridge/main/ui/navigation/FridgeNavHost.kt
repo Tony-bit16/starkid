@@ -13,24 +13,24 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.fridge.main.FridgeApplication
-import com.fridge.main.ui.common.UiState
-import com.fridge.main.ui.model.RecipePreview
-import com.fridge.main.ui.model.SampleData
 import com.fridge.main.ui.screens.ingredients.AddIngredientScreen
 import com.fridge.main.ui.screens.ingredients.AddIngredientViewModel
 import com.fridge.main.ui.screens.ingredients.IngredientDetailScreen
 import com.fridge.main.ui.screens.ingredients.IngredientDetailViewModel
 import com.fridge.main.ui.screens.ingredients.IngredientListScreen
 import com.fridge.main.ui.screens.ingredients.IngredientListViewModel
+import com.fridge.main.ui.screens.recipes.AddRecipeScreen
+import com.fridge.main.ui.screens.recipes.AddRecipeViewModel
 import com.fridge.main.ui.screens.recipes.RecipeDetailScreen
+import com.fridge.main.ui.screens.recipes.RecipeDetailViewModel
 import com.fridge.main.ui.screens.recipes.RecipeListScreen
+import com.fridge.main.ui.screens.recipes.RecipeListViewModel
 
 /**
  * 主 App 导航图。
  *
- * 食材相关页面从 [FridgeApplication] 注入同一个 Repository，再由各自的 ViewModel
- * 读取 Room；导航层只负责创建 ViewModel 和接线跳转，不直接访问数据库。
- * 菜谱页面仍使用静态 [SampleData]，待菜谱模块接入后替换。
+ * 页面所需 Repository 统一从 [FridgeApplication] 注入，由各自 ViewModel 读取 Room；
+ * 导航层只负责创建 ViewModel 与接线跳转，不直接访问数据库。
  */
 @Composable
 fun FridgeNavHost(
@@ -38,7 +38,8 @@ fun FridgeNavHost(
     modifier: Modifier = Modifier,
 ) {
     val application = LocalContext.current.applicationContext as FridgeApplication
-    val repository = remember(application) { application.ingredientRepository }
+    val ingredientRepository = remember(application) { application.ingredientRepository }
+    val recipeRepository = remember(application) { application.recipeRepository }
 
     NavHost(
         navController = navController,
@@ -47,7 +48,7 @@ fun FridgeNavHost(
     ) {
         composable(route = Routes.INGREDIENTS) {
             val viewModel: IngredientListViewModel = viewModel(
-                factory = IngredientListViewModel.factory(repository),
+                factory = IngredientListViewModel.factory(ingredientRepository),
             )
             val state by viewModel.uiState.collectAsStateWithLifecycle()
             IngredientListScreen(
@@ -65,7 +66,7 @@ fun FridgeNavHost(
         ) { backStackEntry ->
             val id = backStackEntry.arguments?.getLong("ingredientId") ?: -1L
             val viewModel: IngredientDetailViewModel = viewModel(
-                factory = IngredientDetailViewModel.factory(repository, id),
+                factory = IngredientDetailViewModel.factory(ingredientRepository, id),
             )
             val state by viewModel.uiState.collectAsStateWithLifecycle()
             IngredientDetailScreen(
@@ -84,7 +85,7 @@ fun FridgeNavHost(
 
         composable(route = Routes.ADD_INGREDIENT) {
             val viewModel: AddIngredientViewModel = viewModel(
-                factory = AddIngredientViewModel.factory(repository),
+                factory = AddIngredientViewModel.factory(ingredientRepository),
             )
             val state by viewModel.uiState.collectAsStateWithLifecycle()
             AddIngredientScreen(
@@ -96,12 +97,29 @@ fun FridgeNavHost(
         }
 
         composable(route = Routes.RECIPES) {
+            val viewModel: RecipeListViewModel = viewModel(
+                factory = RecipeListViewModel.factory(recipeRepository),
+            )
+            val state by viewModel.uiState.collectAsStateWithLifecycle()
             RecipeListScreen(
-                state = UiState.Success(SampleData.recipes),
-                onRetry = {},
+                state = state,
+                onRetry = viewModel::retry,
                 onRecipeClick = { id ->
                     navController.navigate(Routes.recipeDetail(id))
                 },
+            )
+        }
+
+        composable(route = Routes.ADD_RECIPE) {
+            val viewModel: AddRecipeViewModel = viewModel(
+                factory = AddRecipeViewModel.factory(recipeRepository),
+            )
+            val state by viewModel.uiState.collectAsStateWithLifecycle()
+            AddRecipeScreen(
+                uiState = state,
+                onFormChange = viewModel::onFormChange,
+                onSave = viewModel::save,
+                onSaved = { navController.popBackStack() },
             )
         }
 
@@ -110,13 +128,21 @@ fun FridgeNavHost(
             arguments = listOf(navArgument("recipeId") { type = NavType.LongType }),
         ) { backStackEntry ->
             val id = backStackEntry.arguments?.getLong("recipeId") ?: -1L
-            val recipe = SampleData.recipe(id)
-            val state: UiState<RecipePreview> =
-                if (recipe != null) UiState.Success(recipe) else UiState.Empty
+            val viewModel: RecipeDetailViewModel = viewModel(
+                factory = RecipeDetailViewModel.factory(recipeRepository, id),
+            )
+            val state by viewModel.uiState.collectAsStateWithLifecycle()
             RecipeDetailScreen(
-                recipeId = id,
-                state = state,
-                onRetry = {},
+                uiState = state,
+                onRetry = viewModel::retry,
+                onStartEdit = viewModel::startEdit,
+                onCancelEdit = viewModel::cancelEdit,
+                onFormChange = viewModel::onFormChange,
+                onSave = viewModel::save,
+                onDelete = viewModel::delete,
+                onDeleted = { navController.popBackStack() },
+                onClearError = viewModel::clearError,
+                onConsumeUpdateSucceeded = viewModel::consumeUpdateSucceeded,
             )
         }
     }
