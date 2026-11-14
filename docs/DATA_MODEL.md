@@ -157,23 +157,24 @@ Recipe ──N:M── IngredientType ──1:N── Ingredient（库存批次�
 不新增 `expires_at` 列，统一派生：
 
 ```text
-expiresAt = stored_at + shelf_life_days * 86_400_000L
-daysLeft  = ceil((expiresAt - now) / 86_400_000.0)
+expiryDate = stored_at 在设备时区的 LocalDate + shelf_life_days
+daysLeft   = ChronoUnit.DAYS.between(今天, expiryDate)
 ```
 
 状态：
 
 | 条件 | 状态 | UI 文案 |
 | --- | --- | --- |
-| `now < expiresAt - 3 天` | FRESH | 新鲜 |
-| `expiresAt - 3 天 <= now < expiresAt` | EXPIRING | 临期 |
-| `now >= expiresAt` | EXPIRED | 已过期 |
+| `daysLeft > 3` | FRESH | 新鲜（绿色） |
+| `0 <= daysLeft <= 3` | EXPIRING | 临期（橙色） |
+| `daysLeft < 0` | EXPIRED | 已过期（红色） |
 
 说明：
 
-- 3 天是当前产品默认值，后续可做成设置项。
-- 固定 24 小时计算，暂不处理夏令时/跨时区日历日。
-- 列表排序与区间查询使用同一 SQL 表达式，避免 Java 与 SQL 两套算法不一致。
+- 3 天是当前产品固定值，后续可做成设置项。
+- 按本地日历日计算，跨月/跨年与夏令时不会出现“天数差 1”的偏差；`ExpiryCalculator` 是唯一入口。
+- 到期提醒只推送 `0..3` 天；已过期继续在列表展示，但不重复通知。
+- 列表排序与区间查询仍可用 SQL 表达式；UI/Worker 的最终状态以 `ExpiryCalculator` 为准。
 
 ## 6. 索引与查询
 

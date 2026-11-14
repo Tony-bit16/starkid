@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">冰箱管家</string>
+    <string name="expiry_channel_name">保质期提醒</string>
+    <string name="expiry_channel_description">每天检查临期食材，到期前 3 天提醒</string>
+    <string name="expiry_notification_title">有 %1$d 种食材即将过期</string>
 </resources>

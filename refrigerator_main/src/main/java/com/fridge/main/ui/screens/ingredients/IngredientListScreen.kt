@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.fridge.main.ui.common.ScreenStateContent
 import com.fridge.main.ui.common.UiState
 import com.fridge.main.ui.components.FreshnessPill
+import com.fridge.main.ui.components.NotificationPermissionBanner
 import com.fridge.main.ui.model.IngredientUiModel
 
 /**
@@ -44,30 +45,34 @@ fun IngredientListScreen(
     onIngredientClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    ScreenStateContent(
-        state = state,
-        onRetry = onRetry,
-        emptyTitle = "冰箱还是空的",
-        emptyMessage = "点击右上角“新增”，记录第一份食材。",
-        modifier = modifier.fillMaxSize(),
-    ) { items ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
-                Text(
-                    text = "共 ${items.size} 条库存",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            items(items = items, key = { it.id }) { item ->
-                IngredientCard(
-                    item = item,
-                    onClick = { onIngredientClick(item.id) },
-                )
+    Column(modifier = modifier.fillMaxSize()) {
+        // 通知权限不可用时只占一条提示，不改变列表的数据加载与错误处理。
+        NotificationPermissionBanner()
+        ScreenStateContent(
+            state = state,
+            onRetry = onRetry,
+            emptyTitle = "冰箱还是空的",
+            emptyMessage = "点击右上角“新增”，记录第一份食材。",
+            modifier = Modifier.weight(1f),
+        ) { items ->
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item {
+                    Text(
+                        text = "共 ${items.size} 条库存",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                items(items = items, key = { it.id }) { item ->
+                    IngredientCard(
+                        item = item,
+                        onClick = { onIngredientClick(item.id) },
+                    )
+                }
             }
         }
     }

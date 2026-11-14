@@ -46,6 +46,14 @@ interface IngredientDao {
     @Query("SELECT * FROM ingredients WHERE id = :ingredientId LIMIT 1")
     suspend fun findById(ingredientId: Long): Ingredient?
 
+    /**
+     * 一次性读取全部库存，供 WorkManager 后台巡检使用。
+     *
+     * 后台任务不需要持续观察，使用挂起查询避免 Flow 在 Worker 结束后仍持有订阅。
+     */
+    @Query("SELECT * FROM ingredients ORDER BY stored_at ASC")
+    suspend fun findAll(): List<Ingredient>
+
     /** 按名称模糊搜索（用于首页搜索框）。 */
     @Query("SELECT * FROM ingredients WHERE name LIKE '%' || :keyword || '%' ORDER BY stored_at DESC")
     fun observeByName(keyword: String): Flow<List<Ingredient>>

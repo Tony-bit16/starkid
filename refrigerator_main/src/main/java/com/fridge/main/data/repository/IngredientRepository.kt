@@ -4,7 +4,7 @@ import com.fridge.main.data.local.entity.Ingredient
 import kotlinx.coroutines.flow.Flow
 
 /**
- * 食材库存仓库接口（本轮只定义契约，不提供实现）。
+ * 食材库存仓库契约。
  *
  * 职责：
  * - 组合 IngredientDao 与 IngredientTypeDao；
@@ -26,6 +26,9 @@ interface IngredientRepository {
 
     /** 观察未来 [withinDays] 天内到期的库存，供首页提醒卡与看板使用。 */
     fun observeExpiring(withinDays: Int): Flow<List<Ingredient>>
+
+    /** 一次性读取全部库存，供 WorkManager 后台检查使用。 */
+    suspend fun getAllIngredients(): List<Ingredient>
 
     /** 新增一批食材；成功后返回新库存 id。 */
     suspend fun addIngredient(draft: IngredientDraft): Result<Long>

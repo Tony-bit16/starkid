@@ -87,6 +87,9 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.gson)
 
+    // 每日保质期巡检：PeriodicWorkRequest + CoroutineWorker。
+    implementation(libs.androidx.work.runtime.ktx)
+
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

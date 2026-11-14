@@ -6,7 +6,7 @@
 
     <!--
       Android 13（API 33）起，到期提醒通知需要运行时授权。
-      本轮只做权限声明；通知调度与拒绝后的降级提示在“保质期提醒”模块实现。
+      未授权时仅停止推送，不影响食材列表与保质期状态展示。
     -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -21,7 +21,8 @@
 
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

@@ -11,6 +11,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -29,10 +30,21 @@ import com.fridge.main.ui.navigation.Routes
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FridgeApp() {
+fun FridgeApp(openIngredientsSignal: Int = 0) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+
+    // 通知点击统一回到食材库：清掉详情/新增页，避免返回时又回到旧页面。
+    LaunchedEffect(openIngredientsSignal) {
+        if (openIngredientsSignal > 0) {
+            navController.navigate(Routes.INGREDIENTS) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
 
     val isIngredients = currentRoute == Routes.INGREDIENTS
     val isRecipes = currentRoute == Routes.RECIPES

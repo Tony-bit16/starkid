@@ -14,6 +14,8 @@ coroutines = "1.10.2"
 retrofit = "2.11.0"
 okhttp = "4.12.0"
 gson = "2.11.0"
+# 保质期每日巡检：WorkManager 负责持久化周期任务。
+work = "2.10.1"
 # minSdk 24 上使用 java.time 需要核心库脱糖。
 desugarJdkLibs = "2.1.5"
 
@@ -47,6 +49,7 @@ retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = 
 retrofit-converter-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 mpandroidchart = { group = "com.github.PhilJay", name = "MPAndroidChart", version.ref = "mpandroidchart" }
 

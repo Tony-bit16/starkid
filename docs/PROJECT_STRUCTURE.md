@@ -27,11 +27,13 @@ Fridge/
 │  └─ src/main/
 │     ├─ AndroidManifest.xml          # 声明 INTERNET、POST_NOTIFICATIONS、MainActivity
 │     ├─ java/com/fridge/main/
-│     │  ├─ FridgeApplication.kt      # 懒加载数据库 + 食材/菜谱/在线菜谱 Repository 单例
-│     │  ├─ MainActivity.kt           # 唯一 Activity，edge-to-edge + Compose
+│     │  ├─ FridgeApplication.kt      # 懒加载数据库/Repository；创建通知渠道、调度每日检查
+│     │  ├─ MainActivity.kt           # 唯一 Activity；解析通知 extra，发出跳食材库信号
 │     │  ├─ domain/
-│     │  │  └─ matching/
-│     │  │     └─ RecipeMatcher.kt    # 纯 Kotlin 匹配算法：分级、排序、已有/缺少
+│     │  │  ├─ matching/
+│     │  │  │  └─ RecipeMatcher.kt    # 纯 Kotlin 匹配算法：分级、排序、已有/缺少
+│     │  │  └─ expiry/
+│     │  │     └─ ExpiryCalculator.kt # 到期日、剩余天数、0..3 天临期口径
 │     │  ├─ data/
 │     │  │  ├─ local/
 │     │  │  │  ├─ FridgeDatabase.kt   # @Database version=2，MIGRATION_1_2
@@ -63,6 +65,11 @@ Fridge/
 │     │  │     ├─ DefaultRecipeRepository.kt # 菜谱事务、关联维护、校验、异常包装
 │     │  │     ├─ OnlineRecipeRepository.kt # 在线搜索/详情/保存契约
 │     │  │     └─ DefaultOnlineRecipeRepository.kt # 网络调用 + 保存到本地
+│     │  ├─ notification/
+│     │  │  └─ ExpiryNotifications.kt # 渠道、合并通知、PendingIntent、canPost()
+│     │  ├─ work/
+│     │  │  ├─ ExpiryCheckWorker.kt   # CoroutineWorker：查库存、筛选 0..3 天、发通知
+│     │  │  └─ ExpiryReminderScheduler.kt # 每日 09:00 唯一周期任务
 │     │  └─ ui/
 │     │     ├─ FridgeApp.kt           # Scaffold、顶栏、底部「食材库/菜谱库/在线搜索」导航
 │     │     ├─ common/
@@ -71,7 +78,8 @@ Fridge/
 │     │     ├─ components/
 │     │     │  ├─ StateLayouts.kt     # 通用加载/空/错误态布局
 │     │     │  ├─ FridgeComponents.kt # 提示条、卡片、键值行、标签
-│     │     │  └─ FreshnessPill.kt    # 新鲜/临期/过期统一配色
+│     │     │  ├─ FreshnessPill.kt    # 新鲜/临期/过期统一配色
+│     │     │  └─ NotificationPermissionBanner.kt # 说明、申请、拒绝弹窗、去设置
 │     │     ├─ model/
 │     │     │  ├─ IngredientUiModel.kt # 食材展示模型、到期/数量派生
 │     │     │  ├─ RecipeUiModel.kt     # 菜谱/所需食材展示模型
@@ -109,7 +117,9 @@ Fridge/
 │     │     └─ theme/
 │     │        └─ Theme.kt            # 绿/橙语义色，固定配色
 │     └─ res/
-│        ├─ drawable/ic_launcher.xml
+│        ├─ drawable/
+│        │  ├─ ic_launcher.xml
+│        │  └─ ic_notification.xml    # 通知小图标
 │        └─ values/
 │           ├─ strings.xml
 │           └─ themes.xml
@@ -160,6 +170,12 @@ Fridge/
 - `StateLayouts.kt`：`LoadingStateLayout`、`EmptyStateLayout`、`ErrorStateLayout`，所有数据页面复用。
 - `FridgeNavHost.kt`：8 个目的地；食材/菜谱/在线页分别创建 ViewModel，并从 `FridgeApplication` 注入 Repository。
 - `domain/matching/RecipeMatcher.kt`：纯 Kotlin、无 Android/Room 依赖；输入 `MatchableRecipe` 与库存 `typeId` 集合，输出匹配等级/已有/缺少；单测在 `src/test/java/.../RecipeMatcherTest.kt`。
+- `domain/expiry/ExpiryCalculator.kt`：纯函数计算到期日/剩余天数，0..3 天临期；UI 与 Worker 共用，单测在 `src/test/java/.../ExpiryCalculatorTest.kt`。
+- `notification/ExpiryNotifications.kt`：创建渠道、合并通知、`PendingIntent` 跳食材库、`canPost()` 权限/渠道检查；不持有 Activity。
+- `work/ExpiryCheckWorker.kt`：`CoroutineWorker` + `Dispatchers.IO` 查询库存，筛选临期并调用通知；无权限/无临期/异常均安全结束。
+- `work/ExpiryReminderScheduler.kt`：唯一周期任务，每日 09:00，`KEEP` 策略；初始延迟测试在 `ExpiryReminderSchedulerTest.kt`。
+- `ui/components/NotificationPermissionBanner.kt`：首次说明、系统申请、拒绝/永久拒绝提示、`ON_RESUME` 刷新。
+- `MainActivity.kt`：`singleTop`；解析 `EXTRA_OPEN_INGREDIENTS`，通过信号让 `FridgeApp` 跳转食材库。
 - `data/local/`：不依赖 UI；Dao 返回 `Flow` 或 `suspend`，禁止在主线程调用。
 - `data/remote/`：不依赖 UI；只由 `DefaultOnlineRecipeRepository` 调用；`NetworkResult` 统一异常，Retrofit 接口与 DTO 不做业务判断。
 - `data/local/entity/IngredientType.kt`：食材品类主数据，`normalized_name` 唯一；菜谱与库存共同引用。

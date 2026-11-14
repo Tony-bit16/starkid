@@ -1,8 +1,9 @@
 # MVVM 全链路分层设计
 
 > 第二轮定义结构与接口；第四轮实现食材模块，第五轮实现菜谱模块，第六轮实现在线菜谱搜索，
-> 第七轮实现食材匹配推荐。食材/本地菜谱各 3 个 ViewModel、在线菜谱 2 个 ViewModel、
-> 3 个 Repository 与 `RecipeMatcher` 均已落地；看板统计仍为后续。
+> 第七轮实现食材匹配推荐，第八轮实现保质期提醒。食材/本地菜谱各 3 个 ViewModel、
+> 在线菜谱 2 个 ViewModel、3 个 Repository、`RecipeMatcher`、`ExpiryCalculator` 与
+> WorkManager 提醒链路均已落地；看板统计仍为后续。
 > 本文保留目标契约，实际实现以 `com.fridge.main` 源码为准。
 
 ## 1. 分层与依赖方向
@@ -15,15 +16,19 @@ ViewModel
    ├─ StateFlow<UiState> + 一次性事件
    ├──────────────────────────┐
    ▼                          ▼
-Repository（接口/实现）     Domain（RecipeMatcher 纯算法）
-   │  业务校验 / 事务 /       │  匹配等级、已有/缺少食材
-   │  时间计算 / 错误映射      │  不依赖 Android/Room
+Repository（接口/实现）     Domain（纯算法）
+   │  业务校验 / 事务 /       │  RecipeMatcher：匹配等级/缺少食材
+   │  时间计算 / 错误映射      │  ExpiryCalculator：到期日/0..3 天
    ├─────────────────────────┐
    ▼                         ▼
 DAO（Room）              Remote API（Retrofit/OkHttp）
    │  Flow / suspend         │  suspend + NetworkResult
    ▼                         ▼
 SQLite（fridge.db）      TheMealDB（HTTPS）
+
+WorkManager ──► ExpiryCheckWorker ──► IngredientRepository.getAllIngredients()
+                     │                 └─ DAO（Room）
+                     └─ ExpiryNotifications（渠道/合并通知）
 ```
 
 硬规则：
@@ -49,8 +54,10 @@ SQLite（fridge.db）      TheMealDB（HTTPS）
 ```text
 com.fridge.main/
 ├─ domain/
-│  └─ matching/
-│     └─ RecipeMatcher.kt          # 纯 Kotlin 匹配算法（无 Android/Room 依赖）
+│  ├─ matching/
+│  │  └─ RecipeMatcher.kt          # 纯 Kotlin 匹配算法（无 Android/Room 依赖）
+│  └─ expiry/
+│     └─ ExpiryCalculator.kt       # 到期日/剩余天数/0..3 天临期
 ├─ data/
 │  ├─ local/
 │  │  ├─ FridgeDatabase.kt
@@ -82,6 +89,11 @@ com.fridge.main/
 │     ├─ DefaultRecipeRepository.kt
 │     ├─ OnlineRecipeRepository.kt    # 在线搜索/详情/保存
 │     └─ DefaultOnlineRecipeRepository.kt
+├─ notification/
+│  └─ ExpiryNotifications.kt       # 渠道、合并通知、PendingIntent
+├─ work/
+│  ├─ ExpiryCheckWorker.kt         # 后台读取库存并推送
+│  └─ ExpiryReminderScheduler.kt   # 每日 09:00 周期任务
 ├─ ui/
 │  ├─ model/                          # UI 展示模型（Entity/Remote → UI 映射已落地）
 │  ├─ viewmodel/                      # 8 个主 App ViewModel（食材/本地菜谱/在线菜谱）
@@ -114,6 +126,7 @@ com.fridge.dashboard/
 | Repository | 组合多个 DAO、事务、校验、规范化、到期计算、异常映射 | 持有 UI 状态、导航、CPU 匹配 |
 | Domain | 纯函数业务规则（`RecipeMatcher` 分级/排序） | 访问数据库/网络、持有 Context |
 | ViewModel | 把 Repository 的 Flow/suspend 转成 `StateFlow<UiState>`；处理用户事件；在 `Dispatchers.Default` 调用 Domain | 直接拼 SQL、持有 Context |
+| Worker / Scheduler | WorkManager 后台调度、一次性读取 Repository、调用通知层；权限不可用时安全降级 | 持有 Activity/ViewModel、直接改 UI |
 | Screen | 渲染状态、发事件、导航 | 直接访问数据库、做业务计算 |
 
 ### 3.1 Entity ↔ UI 模型
@@ -221,6 +234,7 @@ interface IngredientRepository {
     suspend fun addIngredient(draft: IngredientDraft): Result<Long>
     suspend fun updateIngredient(id: Long, draft: IngredientDraft): Result<Unit>
     suspend fun deleteIngredient(id: Long): Result<Unit>
+    suspend fun getAllIngredients(): List<Ingredient>
 }
 ```
 
@@ -283,7 +297,15 @@ interface OnlineRecipeRepository {
 4. `saveToLocal` 调 `MealMapper.toRecipeDraft()`，再委托 `RecipeRepository.saveRecipe()`；保存复用本地校验与事务，成功后本地列表由 Room Flow 自动刷新。
 5. `CancellationException` 必须重新抛出，避免协程取消被 `Result.failure` 吞掉。
 
-### 5.4 看板 StatsRepository（后续）
+### 5.4 保质期提醒链路（非 ViewModel）
+
+- `ExpiryReminderScheduler.scheduleDaily()`：唯一周期任务 `ingredient_expiry_daily_check`，每 1 天、下一个本地 09:00 首次执行，`ExistingPeriodicWorkPolicy.KEEP`。
+- `ExpiryCheckWorker`：`CoroutineWorker` + `Dispatchers.IO`，调用 `IngredientRepository.getAllIngredients()`，使用 `ExpiryCalculator` 筛 0..3 天，交给 `ExpiryNotifications`。
+- `ExpiryNotifications`：创建 `expiry_reminder` 渠道、合并通知、`PendingIntent` 打开 `MainActivity`；`canPost()` 统一检查权限/总开关/渠道。
+- 权限拒绝：Worker 返回 `success`，不重试；通知点击：`MainActivity` 信号 → `FridgeApp` 跳食材库。
+- Worker 不直接持有 Activity/ViewModel，也不直接查 DAO。
+
+### 5.5 看板 StatsRepository（后续）
 
 ```kotlin
 interface StatsRepository {
@@ -581,6 +603,7 @@ class DashboardViewModel(
 | 多 DAO 事务 | `RoomDatabase.withTransaction { ... }` |
 | CSV 写文件 | `Dispatchers.IO` |
 | ContentResolver 查询 | `Dispatchers.IO` |
+| 到期检查 Worker | `CoroutineWorker` + `Dispatchers.IO`；通知构造也在 Worker 内 |
 | 日期/剩余天数计算 | 纯函数，可在主线程；数据量大时移到 Default |
 
 UI 收集：
@@ -637,6 +660,12 @@ class FridgeApplication : Application() {
             recipeRepository = recipeRepository,
         )
     }
+
+    override fun onCreate() {
+        super.onCreate()
+        ExpiryNotifications.createChannel(this)
+        ExpiryReminderScheduler.scheduleDaily(this)
+    }
 }
 ```
 
@@ -650,7 +679,8 @@ ViewModel 由 `FridgeNavHost` 用 `viewModel(factory = ...)` 创建，Repository
 | --- | --- |
 | DAO | 内存 Room：插入、到期区间、关联查询、级联删除、RESTRICT |
 | Repository | fake DAO：名称规范化、品类复用、事务回滚、校验、错误映射 |
-| Domain | `RecipeMatcherTest`：三级分类、稳定排序、已有/缺少名称、空库存、空菜谱 |
+| Domain | `RecipeMatcherTest`：三级分类、稳定排序、已有/缺少名称、空库存、空菜谱；`ExpiryCalculatorTest`：到期日、0..3 天、已过期 |
+| Work | `ExpiryReminderSchedulerTest`：09:00 前/后/准点初始延迟；Worker 后续用 `WorkManagerTestInitHelper` 覆盖权限降级与通知合并 |
 | ViewModel | `kotlinx-coroutines-test` + Turbine：四态顺序、防抖、事件只发一次 |
 | Network | MockWebServer：搜索/详情 JSON、404/500、超时、断网、空 meals；断言 `NetworkResult` |
 | Compose | Loading/Empty/Error/Success 快照；点击卡片路由；表单校验 |
@@ -672,10 +702,13 @@ ViewModel 由 `FridgeNavHost` 用 `viewModel(factory = ...)` 创建，Repository
 - 食材/菜谱列表、详情、新增/编辑页面接入 Room 与四态 UI；在线搜索/详情接入网络与三 Tab 导航。
 - 菜谱列表“全部/推荐”筛选、等级徽标、已备齐数量、缺少食材；详情食材已有/缺少高亮。
 - 菜谱新增/编辑共用 `RecipeForm`，支持动态食材清单与多行做法；在线菜谱保存复用同一事务。
+- `ExpiryCalculator` + `ExpiryCheckWorker` + `ExpiryReminderScheduler`：每日 09:00 检查、0..3 天临期、合并通知、点击跳食材库。
+- `NotificationPermissionBanner`：Android 13+ 说明/申请/拒绝/永久拒绝“去设置”，未授权仍可查看状态。
+- `ExpiryCalculatorTest` 3 个、`ExpiryReminderSchedulerTest` 3 个；总计 11 个 JVM 单测通过。
 
 未完成（下一轮）：
 
 - 本地菜谱关键词搜索（当前搜索只针对在线 API）。
 - 匹配的数量/单位换算、临期优先、别名归一。
 - 看板真实统计数据与 CSV 导出。
-- 通知、Provider、CSV 写文件。
+- Provider、CSV 写文件。

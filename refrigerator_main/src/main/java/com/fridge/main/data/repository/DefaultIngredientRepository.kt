@@ -45,6 +45,9 @@ class DefaultIngredientRepository(
         emitAll(database.ingredientDao().observeExpiringBetween(now, windowEnd))
     }
 
+    override suspend fun getAllIngredients(): List<Ingredient> =
+        database.ingredientDao().findAll()
+
     override suspend fun addIngredient(draft: IngredientDraft): Result<Long> = dataResult {
         val clean = draft.validated()
         database.withTransaction {

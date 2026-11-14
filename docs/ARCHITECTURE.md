@@ -47,6 +47,9 @@ ViewModel
 
 - `ui/`：Compose 页面、导航、四态组件；食材、本地菜谱、在线搜索/详情均已接 ViewModel。
 - `domain/matching/`：纯 Kotlin 的 `RecipeMatcher`，只依赖 `MatchableRecipe` / 品类 id 集合，不依赖 Room、Compose 或 Android。
+- `domain/expiry/`：`ExpiryCalculator` 统一到期日、剩余天数与 0..3 天临期口径；UI 与 Worker 共用，避免两套边界。
+- `notification/`：通知渠道、合并通知、待处理 Intent 与权限可用性检查；不持有 Activity/ViewModel。
+- `work/`：`ExpiryCheckWorker` 负责后台查询与通知，`ExpiryReminderScheduler` 负责唯一周期任务；任务只依赖 `FridgeApplication` 暴露的数据库。
 - `data/local/`：Entity、Dao、Database、Relation；数据库版本 2，已加入食材品类主数据与菜谱-食材多对多关联。
 - `data/remote/`：Retrofit API、DTO、Mapper、`NetworkResult` 与 `BaseRemoteDataSource`；只由在线菜谱 Repository 使用。
 - `data/repository/`：`DefaultIngredientRepository`、`DefaultRecipeRepository`、`DefaultOnlineRecipeRepository`，在 Repository 层完成事务、校验、品类复用、网络异常包装。
@@ -54,7 +57,8 @@ ViewModel
 - 菜谱新增/编辑共用 `RecipeForm`，食材清单按行动态增删；菜谱详情通过 Room Flow 自动刷新。
 - 在线菜谱详情保存时复用 `RecipeRepository.saveRecipe`，本地列表由同一个 Room Flow 自动刷新。
 - 看板仍为静态演示。
-- `FridgeApplication` 懒加载数据库与 Repository，并暴露 `ingredientRepository`、`recipeRepository`、`onlineRecipeRepository` 单例。
+- `FridgeApplication` 懒加载数据库与 Repository，并暴露 `ingredientRepository`、`recipeRepository`、`onlineRecipeRepository` 单例；`onCreate` 创建 `expiry_reminder` 渠道并调度每日 09:00 检查。
+- `notification/` 与 `work/` 不依赖 ViewModel：`ExpiryCheckWorker` 通过 `IngredientRepository.getAllIngredients()` 读取库存，按 `ExpiryCalculator` 筛选后调用 `ExpiryNotifications`。
 
 ### 2.2 实现约束
 
@@ -67,7 +71,9 @@ ViewModel
 - 匹配只依赖 `type_id` 与库存数量 > 0，不修改任何数据；推荐列表与详情是同一算法的两种投影，避免两套口径。
 - 网络层不向上抛 Retrofit/OkHttp 异常：`BaseRemoteDataSource` 统一转换为 `NetworkResult.Failure(message)`，ViewModel 只消费中文文案。
 - 网络失败不改变本地数据：在线搜索/详情失败只影响当前页，本地菜谱库仍可读取 Room。
-- `FridgeApplication` 只懒加载数据库与 Repository，不做阻塞初始化。
+- 到期检查在 `CoroutineWorker` 的 `Dispatchers.IO` 中执行；Worker 不持有 Activity，通知使用 application context。
+- 通知权限被拒绝或渠道关闭时，Worker 直接成功返回，不重试、不抛异常；食材 CRUD 不受影响。
+- `FridgeApplication` 只懒加载数据库与 Repository，并创建通知渠道/入队每日任务；不做阻塞查询。
 
 ### 2.3 在线菜谱数据流
 
@@ -113,6 +119,28 @@ RecipeListUiState / RecipeDetailUiState
 - 列表“全部菜谱”不计算匹配；只有“推荐菜谱”调用 `matchAll`，避免无意义 CPU 开销。
 - `RecipeMatcher` 用 `level.ordinal → missing.size → recipeName` 稳定排序；空食材菜谱按“缺少多种食材”处理。
 - 匹配只判断品类是否有库存，不比较数量；数量/单位换算与临期优先级留到后续。
+
+### 2.5 到期提醒数据流
+
+```text
+FridgeApplication.onCreate
+        ├─ ExpiryNotifications.createChannel()
+        └─ ExpiryReminderScheduler.scheduleDaily()
+                  └─ WorkManager 唯一周期任务（每日 09:00）
+
+ExpiryCheckWorker.doWork（Dispatchers.IO）
+        ├─ IngredientRepository.getAllIngredients()
+        ├─ ExpiryCalculator.daysLeft / isExpiringSoon（0..3 天）
+        ├─ 无权限 / 渠道关闭 → success() 降级
+        ├─ 无临期 → ExpiryNotifications.cancel()
+        └─ 有临期 → show(items) 合并通知
+                          └─ PendingIntent → MainActivity
+                                  └─ EXTRA_OPEN_INGREDIENTS → FridgeApp 跳食材库
+```
+
+- 进入食材列表先展示通知说明，用户同意后才申请系统权限；拒绝/永久拒绝只影响通知。
+- `NotificationPermissionBanner` 在 `ON_RESUME` 重新检查，设置页返回后自动消失。
+- Worker 的查询与通知构造全部在后台线程；通知内容只包含名称与剩余天数，不包含数量/备注等敏感信息。
 
 ## 3. 数据模型与关系
 
@@ -173,6 +201,14 @@ expiresAt = stored_at + shelf_life_days * 86_400_000L
 ```
 
 查询使用同一表达式，避免“到期日”和“剩余天数”两份数据不一致。时间戳按 UTC 毫秒存储，展示时使用设备本地时区格式化。
+
+到期提醒统一使用本地日历日计算：
+
+- `daysLeft = expiresAt 的本地日期 - 今天`；
+- `0..3` 天 → 临期（橙色）；
+- `< 0` 天 → 已过期（红色），继续留在列表但不重复推送；
+- `> 3` 天 → 新鲜（绿色）；
+- 每日 09:00 检查一次，多条临期合并为一条通知；无临期时取消旧通知。
 
 ### 3.3 数据库版本与迁移
 
@@ -260,12 +296,13 @@ sealed interface UiState<out T> {
 
 ### 6.1 通知
 
-计划使用 WorkManager 每日检查到期食材，创建通知渠道；不引入精确闹钟权限。
+使用 WorkManager `2.10.1` 每日检查，创建 `expiry_reminder` 通知渠道；不使用精确闹钟权限，允许系统按省电策略延迟。
 
-- Android 13+：先申请 `POST_NOTIFICATIONS`。
-- 拒绝：不崩溃、不影响食材 CRUD；首页/设置页展示“到期提醒已关闭”的提示。
-- 通知渠道被用户关闭：同样按拒绝处理。
-- 本轮只声明权限，未创建渠道、未申请、未调度。
+- Android 13+：首次进入食材库先展示说明弹窗，用户同意后才请求 `POST_NOTIFICATIONS`。
+- 拒绝：不崩溃、不影响食材 CRUD；弹窗说明并保留顶部提示条，可再次申请。
+- 永久拒绝/通知总开关关闭：提示条显示“去设置”，跳转应用通知设置；`ON_RESUME` 返回后刷新。
+- 通知渠道被用户关闭：`canPost()` 返回 false，Worker 直接成功返回，不反复重试。
+- 未授权时列表仍按新鲜/临期/已过期展示，App 内可完整查看状态。
 
 ### 6.2 文件导出
 
@@ -285,6 +322,7 @@ sealed interface UiState<out T> {
 | Compose BOM | 2026.02.01 |
 | Room | 2.8.5 |
 | Retrofit / OkHttp / Gson | 2.11.0 / 4.12.0 / 2.11.0 |
+| WorkManager | 2.10.1 |
 | Navigation Compose | 2.9.8 |
 | MPAndroidChart | v3.1.0 |
 | minSdk / compileSdk | 24 / 36（minor 1） |
@@ -298,7 +336,8 @@ sealed interface UiState<out T> {
 
 - DAO：内存 Room 数据库，覆盖插入、到期区间查询、关联查询、级联删除。
 - Repository：用 fake DAO 测试校验、到期天数、品类复用。
-- Domain：`RecipeMatcherTest` 覆盖三级分类、稳定排序、已有/缺少名称、空库存、空菜谱。
+- Domain：`RecipeMatcherTest` 覆盖三级分类、稳定排序、已有/缺少名称、空库存、空菜谱；`ExpiryCalculatorTest` 覆盖到期日、0..3 天边界、已过期。
+- Work：`ExpiryReminderSchedulerTest` 覆盖 09:00 前/后/准点初始延迟；Worker 通知合并与权限降级后续可用 `WorkManagerTestInitHelper` 补。
 - ViewModel：`kotlinx-coroutines-test` + Turbine 验证四态顺序。
 - Compose：对 Loading / Empty / Error / Success 做 UI 测试；列表点击触发正确路由。
 - Provider：`ProviderTestRule` 验证权限、projection 白名单、Cursor 列名。
@@ -314,6 +353,8 @@ sealed interface UiState<out T> {
 - 匹配只判断“品类有库存”，不判断数量是否够：例如菜谱要 3 个鸡蛋、冰箱只有 1 个，仍会显示“完全可制作”；这是当前明确的业务边界。
 - 菜谱列表推荐需要加载全部菜谱与库存并在 `Dispatchers.Default` 计算；数据量很大时应改为分页/增量计算。
 - 品类合并/改名会影响历史快照展示；改名时是否同步更新 `Ingredient.name/category` 需产品确认。
-- 通知调度策略（每天几点、提前几天）尚未定；实现前需确认产品规则。
+- 每日 09:00 与提前 3 天是当前固定规则，未提供用户配置；WorkManager 周期任务允许系统延迟，不能保证秒级准点。
+- 通知只按“品类有库存 + 0..3 天”筛选；同一品类多条批次会各自触发一次，合并文案可能出现重复名称，后续可按品类聚合。
+- Android 13 以下无运行时通知权限，但用户仍可在系统设置关闭通知；`canPost()` 已覆盖该场景。
 - 看板与主 App 的 release 签名必须统一，否则 signature 权限会拒绝。
 - `stored_at + days * 86400000` 按固定 24 小时计算；若未来支持跨时区/夏令时，需要改为按本地日历日计算。

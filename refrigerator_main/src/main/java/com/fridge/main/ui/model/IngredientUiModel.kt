@@ -1,12 +1,12 @@
 package com.fridge.main.ui.model
 
 import com.fridge.main.data.local.entity.Ingredient
+import com.fridge.main.domain.expiry.ExpiryCalculator
 import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
 
 /**
  * 食材列表/详情页的展示模型。
@@ -32,8 +32,8 @@ data class IngredientUiModel(
 
     val status: FreshnessStatus
         get() = when {
-            daysLeft < 0 -> FreshnessStatus.EXPIRED
-            daysLeft <= 2 -> FreshnessStatus.EXPIRING
+            ExpiryCalculator.isExpired(daysLeft) -> FreshnessStatus.EXPIRED
+            ExpiryCalculator.isExpiringSoon(daysLeft) -> FreshnessStatus.EXPIRING
             else -> FreshnessStatus.FRESH
         }
 
@@ -53,11 +53,21 @@ data class IngredientUiModel(
  * 86400000 在夏令时切换日出现 ±1 天误差。
  */
 fun Ingredient.toUiModel(today: LocalDate = LocalDate.now()): IngredientUiModel {
+    val zoneId = ZoneId.systemDefault()
     val storedDate = Instant.ofEpochMilli(storedAt)
-        .atZone(ZoneId.systemDefault())
+        .atZone(zoneId)
         .toLocalDate()
-    val expiryDate = storedDate.plusDays(shelfLifeDays.toLong())
-    val daysLeft = ChronoUnit.DAYS.between(today, expiryDate).toInt()
+    val expiryDate = ExpiryCalculator.expiryDate(
+        storedAt = storedAt,
+        shelfLifeDays = shelfLifeDays,
+        zoneId = zoneId,
+    )
+    val daysLeft = ExpiryCalculator.daysLeft(
+        storedAt = storedAt,
+        shelfLifeDays = shelfLifeDays,
+        today = today,
+        zoneId = zoneId,
+    )
 
     return IngredientUiModel(
         id = id,

@@ -9,6 +9,8 @@ import com.fridge.main.data.repository.DefaultRecipeRepository
 import com.fridge.main.data.repository.IngredientRepository
 import com.fridge.main.data.repository.OnlineRecipeRepository
 import com.fridge.main.data.repository.RecipeRepository
+import com.fridge.main.notification.ExpiryNotifications
+import com.fridge.main.work.ExpiryReminderScheduler
 
 /**
  * 应用级容器。
@@ -20,6 +22,13 @@ import com.fridge.main.data.repository.RecipeRepository
  * 后续模块变多后再考虑引入 Hilt；当前不引入额外框架，避免初始化阶段过度设计。
  */
 class FridgeApplication : Application() {
+
+    override fun onCreate() {
+        super.onCreate()
+        // 渠道可重复创建；调度使用唯一周期任务，冷启动不会叠加多个 Worker。
+        ExpiryNotifications.createChannel(this)
+        ExpiryReminderScheduler.schedule(this)
+    }
 
     val database: FridgeDatabase by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         FridgeDatabase.getInstance(this)
