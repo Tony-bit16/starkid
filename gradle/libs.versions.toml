@@ -10,6 +10,10 @@ composeBom = "2026.02.01"
 navigationCompose = "2.9.8"
 room = "2.8.5"
 coroutines = "1.10.2"
+# 在线菜谱：Retrofit + OkHttp + Gson。
+retrofit = "2.11.0"
+okhttp = "4.12.0"
+gson = "2.11.0"
 # minSdk 24 上使用 java.time 需要核心库脱糖。
 desugarJdkLibs = "2.1.5"
 
@@ -39,6 +43,10 @@ androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = 
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
+retrofit-converter-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 mpandroidchart = { group = "com.github.PhilJay", name = "MPAndroidChart", version.ref = "mpandroidchart" }
 

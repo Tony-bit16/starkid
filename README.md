@@ -11,7 +11,7 @@
 
 ## 当前阶段
 
-**第五轮：菜谱模块接入 Room，完成菜谱录入与本地增删改查。**
+**第六轮：接入 Retrofit，实现在线菜谱搜索与一键保存到本地。**
 
 已经落地：
 
@@ -25,10 +25,13 @@
 - 菜谱模块完整分层：`DefaultRecipeRepository` + 3 个 ViewModel，列表/详情/新增全部接 Room。
 - 新增菜谱支持菜名、动态食材清单与多行做法；菜谱详情支持编辑、删除，列表随 Room Flow 自动刷新。
 - 菜谱所需食材关联到 `ingredient_types`，允许“菜谱先于库存存在”；重复食材名会被拒绝。
-- 数据库/写入异常统一转为中文提示；模拟数据库不可读时进入“加载失败 + 重试”错误态，App 不崩溃。
-- 主 App 底部导航「食材库 / 菜谱库」、6 个页面与列表 → 详情跳转。
+- 新增在线菜谱：Retrofit + OkHttp + Gson，接入 TheMealDB 搜索/详情接口。
+- 在线搜索/详情具备加载、空、错误与重试；网络失败弹出提示，本地菜谱仍可正常使用。
+- 在线详情支持“保存到本地”，转换食材与步骤后写入 Room，本地菜谱列表自动刷新。
+- 数据库/网络异常统一转为中文提示；模拟数据库不可读时进入“加载失败 + 重试”错误态，App 不崩溃。
+- 主 App 底部导航「食材库 / 菜谱库 / 在线搜索」、8 个主 App 页面与列表 → 详情跳转。
 - 通用加载态、空态、错误态布局，统一由 `ScreenStateContent` 应用。
-- 看板 2 个页面仍为静态演示 UI；8 个页面的 UI 原型文档保持有效。
+- 看板 2 个页面仍为静态演示 UI；10 个页面的 UI 原型文档保持有效。
 
 明确尚未实现：
 
@@ -36,7 +39,7 @@
 - 到期通知、运行时通知权限申请与拒绝降级。
 - 主 App 只读 ContentProvider。
 - 看板读取真实数据、CSV 实际写入。
-- 图片、搜索、筛选等增强交互。
+- 图片、本地菜谱搜索、分类筛选等增强交互。
 
 ## 技术栈
 
@@ -44,6 +47,7 @@
 - Android Gradle Plugin `8.13.2` / Gradle `8.13`
 - Jetpack Compose（Material 3）+ Navigation Compose
 - Room `2.8.5` + KSP
+- Retrofit `2.11.0` + OkHttp `4.12.0` + Gson `2.11.0`（在线菜谱）
 - Kotlin Coroutines `1.10.2`
 - MPAndroidChart `v3.1.0`（JitPack）
 - minSdk 24 / compileSdk 36（minor 1）/ Java 17
@@ -90,10 +94,10 @@ dashboard_module/build/outputs/apk/debug/dashboard_module-debug.apk
 2. 到期提醒（通知渠道 + 权限申请 + 拒绝降级）。
 3. 主 App 只读 ContentProvider + signature 权限。
 4. 看板接入真实统计与 SAF CSV 导出。
-5. 食材/菜谱搜索、分类筛选、数量快捷调整等增强。
+5. 本地菜谱搜索、分类筛选、图片与数量快捷调整等增强。
 
 ## 本次提交
 
 ```text
-feat: 实现菜谱数据库存储与菜谱录入功能
+feat: 接入Retrofit，实现在线菜谱搜索与一键保存到本地
 ```

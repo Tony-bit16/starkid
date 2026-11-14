@@ -24,7 +24,8 @@ import com.fridge.main.ui.navigation.Routes
 /**
  * 主 App 的唯一 Activity 内容：Scaffold 统一管理顶栏、底部导航与页面容器。
  *
- * 底部导航只在两个一级页面（食材 / 菜谱）显示；详情页、新增页显示返回按钮。
+ * 底部导航只在三个一级页面（食材 / 本地菜谱 / 在线搜索）显示；
+ * 详情页、新增页显示返回按钮。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,7 +36,8 @@ fun FridgeApp() {
 
     val isIngredients = currentRoute == Routes.INGREDIENTS
     val isRecipes = currentRoute == Routes.RECIPES
-    val isTopLevel = isIngredients || isRecipes
+    val isOnline = currentRoute == Routes.ONLINE_RECIPES
+    val isTopLevel = isIngredients || isRecipes || isOnline
 
     val title = when (currentRoute) {
         Routes.INGREDIENTS -> "食材库"
@@ -44,6 +46,8 @@ fun FridgeApp() {
         Routes.RECIPES -> "菜谱库"
         Routes.ADD_RECIPE -> "新增菜谱"
         Routes.RECIPE_DETAIL -> "菜谱详情"
+        Routes.ONLINE_RECIPES -> "在线搜索"
+        Routes.ONLINE_RECIPE_DETAIL -> "在线菜谱详情"
         else -> "冰箱管家"
     }
 
@@ -104,6 +108,17 @@ fun FridgeApp() {
                             )
                         },
                         label = { Text("菜谱库") },
+                    )
+                    NavigationBarItem(
+                        selected = isOnline,
+                        onClick = { navController.navigateTopLevel(Routes.ONLINE_RECIPES) },
+                        icon = {
+                            Text(
+                                text = "搜",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        },
+                        label = { Text("在线搜索") },
                     )
                 }
             }

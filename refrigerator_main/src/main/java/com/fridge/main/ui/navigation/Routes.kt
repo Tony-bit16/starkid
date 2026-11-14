@@ -14,8 +14,12 @@ object Routes {
     const val RECIPES = "recipes"
     const val RECIPE_DETAIL = "recipes/detail/{recipeId}"
     const val ADD_RECIPE = "recipes/new"
+    const val ONLINE_RECIPES = "recipes/online"
+    const val ONLINE_RECIPE_DETAIL = "recipes/online/{mealId}"
 
     fun ingredientDetail(id: Long): String = "ingredients/detail/$id"
 
     fun recipeDetail(id: Long): String = "recipes/detail/$id"
+
+    fun onlineRecipeDetail(mealId: String): String = "recipes/online/$mealId"
 }

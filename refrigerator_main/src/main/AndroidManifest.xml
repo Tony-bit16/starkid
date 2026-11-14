@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- 在线菜谱搜索需要访问 HTTPS 接口。 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!--
       Android 13（API 33）起，到期提醒通知需要运行时授权。
       本轮只做权限声明；通知调度与拒绝后的降级提示在“保质期提醒”模块实现。

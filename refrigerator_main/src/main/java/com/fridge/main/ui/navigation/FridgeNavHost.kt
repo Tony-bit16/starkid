@@ -21,6 +21,10 @@ import com.fridge.main.ui.screens.ingredients.IngredientListScreen
 import com.fridge.main.ui.screens.ingredients.IngredientListViewModel
 import com.fridge.main.ui.screens.recipes.AddRecipeScreen
 import com.fridge.main.ui.screens.recipes.AddRecipeViewModel
+import com.fridge.main.ui.screens.recipes.OnlineRecipeDetailScreen
+import com.fridge.main.ui.screens.recipes.OnlineRecipeDetailViewModel
+import com.fridge.main.ui.screens.recipes.OnlineRecipeListScreen
+import com.fridge.main.ui.screens.recipes.OnlineRecipeListViewModel
 import com.fridge.main.ui.screens.recipes.RecipeDetailScreen
 import com.fridge.main.ui.screens.recipes.RecipeDetailViewModel
 import com.fridge.main.ui.screens.recipes.RecipeListScreen
@@ -40,6 +44,7 @@ fun FridgeNavHost(
     val application = LocalContext.current.applicationContext as FridgeApplication
     val ingredientRepository = remember(application) { application.ingredientRepository }
     val recipeRepository = remember(application) { application.recipeRepository }
+    val onlineRecipeRepository = remember(application) { application.onlineRecipeRepository }
 
     NavHost(
         navController = navController,
@@ -143,6 +148,40 @@ fun FridgeNavHost(
                 onDeleted = { navController.popBackStack() },
                 onClearError = viewModel::clearError,
                 onConsumeUpdateSucceeded = viewModel::consumeUpdateSucceeded,
+            )
+        }
+        composable(route = Routes.ONLINE_RECIPES) {
+            val viewModel: OnlineRecipeListViewModel = viewModel(
+                factory = OnlineRecipeListViewModel.factory(onlineRecipeRepository),
+            )
+            val state by viewModel.uiState.collectAsStateWithLifecycle()
+            OnlineRecipeListScreen(
+                uiState = state,
+                onQueryChange = viewModel::onQueryChange,
+                onSearch = viewModel::search,
+                onRetry = viewModel::retry,
+                onRecipeClick = { mealId ->
+                    navController.navigate(Routes.onlineRecipeDetail(mealId))
+                },
+                onDismissErrorDialog = viewModel::dismissErrorDialog,
+            )
+        }
+
+        composable(
+            route = Routes.ONLINE_RECIPE_DETAIL,
+            arguments = listOf(navArgument("mealId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val mealId = backStackEntry.arguments?.getString("mealId").orEmpty()
+            val viewModel: OnlineRecipeDetailViewModel = viewModel(
+                factory = OnlineRecipeDetailViewModel.factory(onlineRecipeRepository, mealId),
+            )
+            val state by viewModel.uiState.collectAsStateWithLifecycle()
+            OnlineRecipeDetailScreen(
+                uiState = state,
+                onRetry = viewModel::load,
+                onSave = viewModel::saveToLocal,
+                onDismissErrorDialog = viewModel::dismissErrorDialog,
+                onClearMessage = viewModel::clearMessage,
             )
         }
     }

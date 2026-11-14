@@ -81,6 +81,12 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 
+    // 在线菜谱：Retrofit 负责接口声明，OkHttp 负责连接/超时，Gson 解析响应。
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.converter.gson)
+    implementation(libs.okhttp)
+    implementation(libs.gson)
+
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

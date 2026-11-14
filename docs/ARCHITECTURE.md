@@ -10,8 +10,8 @@
 │ com.fridge.main             │        │ com.fridge.dashboard         │
 │                             │        │                              │
 │ Compose UI                  │        │ Compose UI                   │
-│ ViewModel（后续）            │        │ ViewModel（后续）             │
-│ Repository（后续）           │        │ StatsRepository（后续）       │
+│ ViewModel                   │        │ ViewModel（后续）             │
+│ Repository                  │        │ StatsRepository（后续）       │
 │ Room DAO / fridge.db        │        │ ContentResolver              │
 │        │                    │        │        │                     │
 │        └── 只读 ContentProvider ◄─────┼────────┘                     │
@@ -45,13 +45,15 @@ SQLite（fridge.db）
 
 ### 2.1 本轮现状
 
-- `ui/`：Compose 页面、导航、四态组件；食材与菜谱的列表/详情/新增均已接 ViewModel 与 Room。
+- `ui/`：Compose 页面、导航、四态组件；食材、本地菜谱、在线搜索/详情均已接 ViewModel。
 - `data/local/`：Entity、Dao、Database、Relation；数据库版本 2，已加入食材品类主数据与菜谱-食材多对多关联。
-- `data/repository/`：`DefaultIngredientRepository`、`DefaultRecipeRepository`，均在 Repository 层完成事务、校验、品类复用与异常包装。
-- ViewModel：食材 3 个（列表/详情/新增）、菜谱 3 个（列表/详情/新增），通过 `StateFlow` 暴露四态或表单/操作状态。
+- `data/remote/`：Retrofit API、DTO、Mapper、`NetworkResult` 与 `BaseRemoteDataSource`；只由在线菜谱 Repository 使用。
+- `data/repository/`：`DefaultIngredientRepository`、`DefaultRecipeRepository`、`DefaultOnlineRecipeRepository`，在 Repository 层完成事务、校验、品类复用、网络异常包装。
+- ViewModel：食材 3 个、本地菜谱 3 个、在线搜索/详情 2 个，通过 `StateFlow` 暴露四态或表单/操作状态。
 - 菜谱新增/编辑共用 `RecipeForm`，食材清单按行动态增删；菜谱详情通过 Room Flow 自动刷新。
+- 在线菜谱详情保存时复用 `RecipeRepository.saveRecipe`，本地列表由同一个 Room Flow 自动刷新。
 - 看板仍为静态演示。
-- `FridgeApplication` 懒加载数据库，并暴露 `ingredientRepository`、`recipeRepository` 单例。
+- `FridgeApplication` 懒加载数据库与 Repository，并暴露 `ingredientRepository`、`recipeRepository`、`onlineRecipeRepository` 单例。
 
 ### 2.2 实现约束
 
@@ -59,8 +61,31 @@ SQLite（fridge.db）
 - 单次结果（保存成功 id、删除成功、保存成功提示）用状态位表达，由页面 `LaunchedEffect` 消费一次；后续若出现并发事件流，再改为 `Channel` / `SharedFlow`。
 - Repository 是唯一允许拼装多个 DAO 结果、做业务校验的层。
 - UI 不直接调用 Dao，不直接使用 `Cursor`，不持有 `Context` 做数据库操作。
-- 主线程不做 IO：Room 的 `suspend` / `Flow` 查询由 Room 的执行器调度；文件、CSV、Provider 查询显式使用 `Dispatchers.IO`。
+- 主线程不做 IO：Room 的 `suspend` / `Flow` 查询由 Room 的执行器调度；网络统一经 `safeApiCall` 切到 `Dispatchers.IO`；文件、CSV、Provider 查询也显式使用 `Dispatchers.IO`。
+- 网络层不向上抛 Retrofit/OkHttp 异常：`BaseRemoteDataSource` 统一转换为 `NetworkResult.Failure(message)`，ViewModel 只消费中文文案。
+- 网络失败不改变本地数据：在线搜索/详情失败只影响当前页，本地菜谱库仍可读取 Room。
 - `FridgeApplication` 只懒加载数据库与 Repository，不做阻塞初始化。
+
+### 2.3 在线菜谱数据流
+
+```text
+OnlineRecipeListScreen / OnlineRecipeDetailScreen
+        │ 收集 OnlineSearchUiState / OnlineRecipeDetailUiState
+        ▼
+OnlineRecipeListViewModel / OnlineRecipeDetailViewModel
+        │ suspend 搜索、详情、保存
+        ▼
+DefaultOnlineRecipeRepository
+        ├─ RecipeApi（TheMealDB search.php / lookup.php）
+        │     └─ safeApiCall：超时/断网/HTTP/解析异常 → NetworkResult.Failure
+        └─ RecipeRepository.saveRecipe（保存时复用本地事务）
+              └─ Room recipes / recipe_ingredients
+```
+
+- 搜索与详情使用独立接口：搜索结果只携带列表所需字段，进入详情后重新 lookup，避免把临时列表当作唯一数据源。
+- 在线详情“保存到本地”先由 `MealMapper` 转成 `RecipeDraft`，再走本地菜谱的校验与事务；因此保存后的数据与手动新增的菜谱完全同构。
+- 保存成功后不手动刷新本地列表：`RecipeListViewModel` 仍订阅 `observeRecipes()`，Room Flow 会自动推送。
+- 搜索请求会取消上一次协程，并在响应返回时比对当前关键词，防止慢响应覆盖新结果。
 
 ## 3. 数据模型与关系
 
@@ -194,11 +219,10 @@ sealed interface UiState<out T> {
 
 - `Empty` 与 `Success(emptyList())` 区分：空态需要引导文案，列表为空不等于错误。
 - `Error.message` 必须是可直接展示的中文，不把异常堆栈抛给用户。
-- 实际映射分别在 `IngredientError.kt` 与 `RecipeError.kt`：
-  - `IllegalArgumentException` / `NoSuchElementException` → 业务校验/记录不存在的中文；
-  - `SQLiteConstraintException` → “数据冲突，请检查名称后重试”；
-  - `SQLiteException` → “数据库操作失败，请稍后重试”；
-  - 其它异常 → 页面兜底文案。
+- 实际映射：
+  - 本地：`IngredientError.kt` 与 `RecipeError.kt` 处理校验、记录不存在、SQLite 约束/异常；
+  - 网络：`NetworkResult.kt` 处理超时、DNS、连接失败、HTTP 4xx/5xx、JSON 解析失败，统一输出中文。
+- 在线搜索/详情失败时同时展示错误页与一次性弹窗：错误页保留“重试”，弹窗明确说明“本地菜谱仍可正常使用”。
 - 重试由 ViewModel 重新订阅 Flow（`retrySignal`）或重新调用查询，不在 Composable 中直接调用 Repository。
 
 ## 6. 权限与降级
@@ -229,6 +253,7 @@ sealed interface UiState<out T> {
 | KSP | 2.2.10-2.0.2 |
 | Compose BOM | 2026.02.01 |
 | Room | 2.8.5 |
+| Retrofit / OkHttp / Gson | 2.11.0 / 4.12.0 / 2.11.0 |
 | Navigation Compose | 2.9.8 |
 | MPAndroidChart | v3.1.0 |
 | minSdk / compileSdk | 24 / 36（minor 1） |
@@ -250,6 +275,8 @@ sealed interface UiState<out T> {
 
 ## 9. 已知风险 / 待确认
 
+- 在线菜谱依赖 TheMealDB 免费测试接口：无 SLA、英文菜名为主、字段可能变化；生产环境应换成有服务保障的 API 或加缓存/代理。
+- TheMealDB 不提供单个食材分类，保存到本地时统一写“未分类”；在线用量是自由文本，解析失败时按“1 + 适量”保存。
 - 菜谱所需食材已改用 `type_id` 关联品类，但品类规范化目前只做 `trim + lower`；别名、同义词与“番茄/西红柿”这类口语差异尚未处理。
 - 数量单位不统一（个 / 克 / 毫升），匹配阶段暂不换算。
 - 品类合并/改名会影响历史快照展示；改名时是否同步更新 `Ingredient.name/category` 需产品确认。
