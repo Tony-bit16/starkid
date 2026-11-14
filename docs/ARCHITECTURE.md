@@ -46,6 +46,8 @@ ViewModel
 ### 2.1 本轮现状
 
 - `ui/`：Compose 页面、导航、四态组件；食材、本地菜谱、在线搜索/详情均已接 ViewModel。
+- `ui/common/AppErrorHandler`：页面跳转等可恢复 UI 异常的错误总线；`safeNavigate`/`safePopBackStack` 捕获导航异常，根 Scaffold 用 Snackbar 统一提示。
+- `ui/components/RefreshableContent`：统一的 Material3 下拉刷新容器，只包裹已有内容的列表；刷新状态由各列表 ViewModel 独立暴露。
 - `domain/matching/`：纯 Kotlin 的 `RecipeMatcher`，只依赖 `MatchableRecipe` / 品类 id 集合，不依赖 Room、Compose 或 Android。
 - `domain/expiry/`：`ExpiryCalculator` 统一到期日、剩余天数与 0..3 天临期口径；UI 与 Worker 共用，避免两套边界。
 - `notification/`：通知渠道、合并通知、待处理 Intent 与权限可用性检查；不持有 Activity/ViewModel。
@@ -73,6 +75,9 @@ ViewModel
 - 网络失败不改变本地数据：在线搜索/详情失败只影响当前页，本地菜谱库仍可读取 Room。
 - 到期检查在 `CoroutineWorker` 的 `Dispatchers.IO` 中执行；Worker 不持有 Activity，通知使用 application context。
 - 通知权限被拒绝或渠道关闭时，Worker 直接成功返回，不重试、不抛异常；食材 CRUD 不受影响。
+- 下拉刷新不重建 ViewModel：列表 VM 暴露独立 `isRefreshing`，通过递增 `retrySignal` 重新订阅 Flow；Room/网络发射或异常后复位，UI 不叠加第二个全屏加载态。
+- 表单校验分两层：首次提交前不打扰用户；首次提交失败后，`onFormChange` 立即重新校验并更新字段错误。在线搜索空值/超长在点击搜索时即时提示。
+- 页面跳转统一走 safe 扩展函数；只有可恢复的 `IllegalArgumentException`/`IllegalStateException` 被转成 Snackbar，不替换全局未捕获异常处理器。
 - `FridgeApplication` 只懒加载数据库与 Repository，并创建通知渠道/入队每日任务；不做阻塞查询。
 
 ### 2.3 在线菜谱数据流
@@ -290,6 +295,8 @@ sealed interface UiState<out T> {
   - 本地：`IngredientError.kt` 与 `RecipeError.kt` 处理校验、记录不存在、SQLite 约束/异常；
   - 网络：`NetworkResult.kt` 处理超时、DNS、连接失败、HTTP 4xx/5xx、JSON 解析失败，统一输出中文。
 - 在线搜索/详情失败时同时展示错误页与一次性弹窗：错误页保留“重试”，弹窗明确说明“本地菜谱仍可正常使用”。
+- 刷新失败时保留当前列表，只弹窗提示；不把已有内容替换成错误页。
+- 页面跳转失败由 `AppErrorHandler` 发到根 Scaffold 的 Snackbar，文案为“页面打开失败/暂时无法打开，请返回后重试”；不替换 Android 默认崩溃处理。
 - 重试由 ViewModel 重新订阅 Flow（`retrySignal`）或重新调用查询，不在 Composable 中直接调用 Repository。
 
 ## 6. 权限与降级
@@ -357,4 +364,6 @@ sealed interface UiState<out T> {
 - 通知只按“品类有库存 + 0..3 天”筛选；同一品类多条批次会各自触发一次，合并文案可能出现重复名称，后续可按品类聚合。
 - Android 13 以下无运行时通知权限，但用户仍可在系统设置关闭通知；`canPost()` 已覆盖该场景。
 - 看板与主 App 的 release 签名必须统一，否则 signature 权限会拒绝。
-- `stored_at + days * 86400000` 按固定 24 小时计算；若未来支持跨时区/夏令时，需要改为按本地日历日计算。
+- 到期日已改为按本地日历日计算，跨时区/夏令时切换时以设备当前时区为准；若用户频繁改时区，剩余天数可能跳变。
+- 下拉刷新会重新订阅 Room Flow 或重发网络请求；同一页面快速连续刷新时，旧请求可能仍在进行，在线搜索已用 `requestId` 丢弃过期结果。
+- `AppErrorHandler` 只捕获导航等可恢复异常，不替换 Android 默认崩溃处理；数据层异常仍需各自映射，避免 Snackbar 文案与页面错误态重复。

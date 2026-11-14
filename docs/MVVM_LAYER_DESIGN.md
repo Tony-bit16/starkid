@@ -530,6 +530,7 @@ data class OnlineSearchUiState(
     val query: String = "",
     val queryError: String? = null,
     val result: OnlineSearchResult = OnlineSearchResult.Idle,
+    val isRefreshing: Boolean = false,
     val errorDialogMessage: String? = null,
 )
 
@@ -539,12 +540,14 @@ class OnlineRecipeListViewModel(
     val uiState: StateFlow<OnlineSearchUiState>
     fun onQueryChange(query: String)
     fun search()
+    fun refresh()
     fun retry()
     fun dismissErrorDialog()
 }
 ```
 
-- `search()` 校验空关键词；取消上一次 Job，响应返回时比对当前关键词，丢弃过期结果。
+- `search()` 校验空关键词/超过 40 字；取消上一次 Job，用 `requestId` + 当前关键词丢弃过期结果。
+- `refresh()` 仅在已有成功结果时启用，保留列表并置 `isRefreshing`；失败只弹窗，不替换结果。
 - 失败同时写 `Error` 与 `errorDialogMessage`；关闭弹窗后错误页仍可重试。
 - 网络在 `DefaultOnlineRecipeRepository` 内切 IO，ViewModel 不直接使用 OkHttp/Retrofit。
 
@@ -575,7 +578,15 @@ class OnlineRecipeDetailViewModel(
 - `saveToLocal()` 防重复；成功 `saved = true`，由 `RecipeListViewModel` 的 Room Flow 自动刷新本地列表。
 - 保存失败把 `Throwable` 映射为中文 `message`，并弹窗提示；页面保留在线内容。
 
-### 6.8 DashboardViewModel（看板）
+### 6.8 刷新、表单即时校验与全局错误约定
+
+- `IngredientListViewModel`、`RecipeListViewModel` 额外暴露 `isRefreshing: StateFlow<Boolean>`；`refresh()` 递增 `retrySignal` 重新订阅 Room Flow，首次发射或异常后复位。
+- `OnlineRecipeListViewModel` 的 `isRefreshing` 在状态类中，`refresh()` 保留旧结果；成功/失败/取消均复位。
+- 新增食材/新增菜谱 ViewModel 在首次 `save()` 之前不显示字段错误；首次失败后 `hasAttemptedSave = true`，后续 `onFormChange` 立即调用 `validated()`。
+- 页面跳转由 `ui/common/AppErrorHandler.kt` 的 `safeNavigate`/`safePopBackStack`/`safeNavigateUp` 兜底；错误通过 `MutableSharedFlow<String>` 发到根 Scaffold 的 `SnackbarHost`。
+- 数据层异常仍由各 ViewModel 转为 `UiState.Error` 或 `errorMessage`，不依赖错误总线；错误总线只处理导航等可恢复 UI 异常。
+
+### 6.9 DashboardViewModel（看板）
 
 ```kotlin
 class DashboardViewModel(
@@ -630,6 +641,7 @@ val state by viewModel.uiState.collectAsStateWithLifecycle()
 | 网络超时/DNS/连接失败 | “请求超时，请检查网络后重试” / “无法连接菜谱服务，请检查网络或稍后重试” |
 | HTTP 4xx/5xx | “菜谱服务暂时不可用（HTTP xxx），请稍后重试” |
 | JSON 解析失败 | “菜谱数据解析失败，请稍后重试” |
+| 导航 `IllegalArgumentException`/`IllegalStateException` | “页面打开失败，请返回后重试” / “页面暂时无法打开，请稍后重试” |
 | 其它 `Throwable` | 页面兜底文案（如“食材加载失败，请重试”） |
 
 原则：
@@ -637,6 +649,7 @@ val state by viewModel.uiState.collectAsStateWithLifecycle()
 - UI 只展示 `message`，不展示堆栈/类名。
 - `Error` 状态必须提供“重试”；重试由 ViewModel 重新触发查询。
 - 非致命错误用 Snackbar，不把整页切到 Error（例如删除失败但列表还在）。
+- 下拉刷新失败时保留旧列表，只弹窗提示；不得把已有内容替换成错误页。
 
 ## 9. 依赖组装
 

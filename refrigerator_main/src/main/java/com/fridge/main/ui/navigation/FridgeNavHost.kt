@@ -13,6 +13,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.fridge.main.FridgeApplication
+import com.fridge.main.ui.common.safeNavigate
+import com.fridge.main.ui.common.safePopBackStack
 import com.fridge.main.ui.screens.ingredients.AddIngredientScreen
 import com.fridge.main.ui.screens.ingredients.AddIngredientViewModel
 import com.fridge.main.ui.screens.ingredients.IngredientDetailScreen
@@ -56,11 +58,14 @@ fun FridgeNavHost(
                 factory = IngredientListViewModel.factory(ingredientRepository),
             )
             val state by viewModel.uiState.collectAsStateWithLifecycle()
+            val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
             IngredientListScreen(
                 state = state,
+                isRefreshing = isRefreshing,
+                onRefresh = viewModel::refresh,
                 onRetry = viewModel::retry,
                 onIngredientClick = { id ->
-                    navController.navigate(Routes.ingredientDetail(id))
+                    navController.safeNavigate(Routes.ingredientDetail(id))
                 },
             )
         }
@@ -82,7 +87,7 @@ fun FridgeNavHost(
                 onFormChange = viewModel::onFormChange,
                 onSave = viewModel::save,
                 onDelete = viewModel::delete,
-                onDeleted = { navController.popBackStack() },
+                onDeleted = { navController.safePopBackStack() },
                 onClearError = viewModel::clearError,
                 onConsumeUpdateSucceeded = viewModel::consumeUpdateSucceeded,
             )
@@ -97,7 +102,7 @@ fun FridgeNavHost(
                 uiState = state,
                 onFormChange = viewModel::onFormChange,
                 onSave = viewModel::save,
-                onSaved = { navController.popBackStack() },
+                onSaved = { navController.safePopBackStack() },
             )
         }
 
@@ -109,15 +114,18 @@ fun FridgeNavHost(
                 ),
             )
             val state by viewModel.uiState.collectAsStateWithLifecycle()
+            val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
             RecipeListScreen(
                 uiState = state,
+                isRefreshing = isRefreshing,
+                onRefresh = viewModel::refresh,
                 onFilterChange = viewModel::setFilter,
                 onRetry = viewModel::retry,
                 onRecipeClick = { id ->
-                    navController.navigate(Routes.recipeDetail(id))
+                    navController.safeNavigate(Routes.recipeDetail(id))
                 },
-                onGoOnline = { navController.navigate(Routes.ONLINE_RECIPES) },
-                onAddIngredient = { navController.navigate(Routes.ADD_INGREDIENT) },
+                onGoOnline = { navController.safeNavigate(Routes.ONLINE_RECIPES) },
+                onAddIngredient = { navController.safeNavigate(Routes.ADD_INGREDIENT) },
             )
         }
 
@@ -130,7 +138,7 @@ fun FridgeNavHost(
                 uiState = state,
                 onFormChange = viewModel::onFormChange,
                 onSave = viewModel::save,
-                onSaved = { navController.popBackStack() },
+                onSaved = { navController.safePopBackStack() },
             )
         }
 
@@ -155,7 +163,7 @@ fun FridgeNavHost(
                 onFormChange = viewModel::onFormChange,
                 onSave = viewModel::save,
                 onDelete = viewModel::delete,
-                onDeleted = { navController.popBackStack() },
+                onDeleted = { navController.safePopBackStack() },
                 onClearError = viewModel::clearError,
                 onConsumeUpdateSucceeded = viewModel::consumeUpdateSucceeded,
             )
@@ -169,9 +177,10 @@ fun FridgeNavHost(
                 uiState = state,
                 onQueryChange = viewModel::onQueryChange,
                 onSearch = viewModel::search,
+                onRefresh = viewModel::refresh,
                 onRetry = viewModel::retry,
                 onRecipeClick = { mealId ->
-                    navController.navigate(Routes.onlineRecipeDetail(mealId))
+                    navController.safeNavigate(Routes.onlineRecipeDetail(mealId))
                 },
                 onDismissErrorDialog = viewModel::dismissErrorDialog,
             )

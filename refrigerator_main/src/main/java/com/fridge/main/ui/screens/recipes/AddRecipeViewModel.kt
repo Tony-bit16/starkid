@@ -33,14 +33,19 @@ class AddRecipeViewModel(
     private val _uiState = MutableStateFlow(AddRecipeUiState())
     val uiState: StateFlow<AddRecipeUiState> = _uiState.asStateFlow()
 
+    /** 首次提交后再开启即时校验，避免用户刚进入空表单就看到满屏红字。 */
+    private var hasAttemptedSave = false
+
     fun onFormChange(form: RecipeFormState) {
-        _uiState.update { it.copy(form = form, errorMessage = null) }
+        val nextForm = if (hasAttemptedSave) form.validated() else form
+        _uiState.update { it.copy(form = nextForm, errorMessage = null) }
     }
 
     fun save() {
         val current = _uiState.value
         if (current.isSaving || current.savedId != null) return
 
+        hasAttemptedSave = true
         val validated = current.form.validated()
         if (validated.hasErrors) {
             _uiState.update { it.copy(form = validated, errorMessage = null) }

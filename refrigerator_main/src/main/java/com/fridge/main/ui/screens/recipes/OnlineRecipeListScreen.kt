@@ -37,6 +37,7 @@ import com.fridge.main.data.remote.recipe.OnlineRecipe
 import com.fridge.main.ui.components.EmptyStateLayout
 import com.fridge.main.ui.components.ErrorStateLayout
 import com.fridge.main.ui.components.LoadingStateLayout
+import com.fridge.main.ui.components.RefreshableContent
 
 /**
  * 在线菜谱搜索页。
@@ -49,6 +50,7 @@ fun OnlineRecipeListScreen(
     uiState: OnlineSearchUiState,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
+    onRefresh: () -> Unit,
     onRetry: () -> Unit,
     onRecipeClick: (String) -> Unit,
     onDismissErrorDialog: () -> Unit,
@@ -85,10 +87,16 @@ fun OnlineRecipeListScreen(
                     onRetry = onRetry,
                 )
 
-                is OnlineSearchResult.Success -> OnlineSearchResults(
-                    recipes = result.recipes,
-                    onRecipeClick = onRecipeClick,
-                )
+                is OnlineSearchResult.Success -> RefreshableContent(
+                    isRefreshing = uiState.isRefreshing,
+                    onRefresh = onRefresh,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    OnlineSearchResults(
+                        recipes = result.recipes,
+                        onRecipeClick = onRecipeClick,
+                    )
+                }
             }
         }
     }
@@ -119,6 +127,7 @@ private fun OnlineSearchHeader(
     onSearch: () -> Unit,
 ) {
     val isLoading = uiState.result is OnlineSearchResult.Loading
+    val isBusy = isLoading || uiState.isRefreshing
 
     Column(
         modifier = Modifier
@@ -148,10 +157,17 @@ private fun OnlineSearchHeader(
             )
             Button(
                 onClick = onSearch,
-                enabled = uiState.query.isNotBlank() && !isLoading,
+                // 空关键词也允许点击，由 ViewModel 给出即时错误提示，避免“按钮灰着但不知道为什么”。
+                enabled = !isBusy,
                 modifier = Modifier.padding(top = 8.dp),
             ) {
-                Text(if (isLoading) "搜索中" else "搜索")
+                Text(
+                    when {
+                        isLoading -> "搜索中"
+                        uiState.isRefreshing -> "刷新中"
+                        else -> "搜索"
+                    },
+                )
             }
         }
         Text(

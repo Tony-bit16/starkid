@@ -20,6 +20,7 @@ data class OnlineSearchUiState(
     val query: String = "",
     val queryError: String? = null,
     val result: OnlineSearchResult = OnlineSearchResult.Idle,
+    val isRefreshing: Boolean = false,
     val errorDialogMessage: String? = null,
 )
 
@@ -47,38 +48,69 @@ class OnlineRecipeListViewModel(
     val uiState: StateFlow<OnlineSearchUiState> = _uiState.asStateFlow()
 
     private var searchJob: Job? = null
+    private var requestId = 0
 
     fun onQueryChange(query: String) {
+        // 关键词变化后旧请求的结果已无意义，取消并在下一次搜索时重新发起。
+        searchJob?.cancel()
+        requestId++
         _uiState.update {
             it.copy(
                 query = query,
                 queryError = null,
+                // 关键词已变化，旧结果不再对应当前输入，回到 Idle 等待下一次搜索。
+                result = OnlineSearchResult.Idle,
+                isRefreshing = false,
                 errorDialogMessage = null,
             )
         }
     }
 
     fun search() {
+        startSearch(fullLoading = true)
+    }
+
+    /** 下拉刷新：保留当前结果，只在列表顶部显示刷新指示器。 */
+    fun refresh() {
+        if (_uiState.value.isRefreshing) return
+        if (_uiState.value.result !is OnlineSearchResult.Success) return
+        startSearch(fullLoading = false)
+    }
+
+    private fun startSearch(fullLoading: Boolean) {
         val query = _uiState.value.query.trim()
-        if (query.isEmpty()) {
-            _uiState.update { it.copy(queryError = "请输入要搜索的菜名") }
-            return
+        when {
+            query.isEmpty() -> {
+                _uiState.update { it.copy(queryError = "请输入要搜索的菜名") }
+                return
+            }
+
+            query.length > MAX_QUERY_LENGTH -> {
+                _uiState.update {
+                    it.copy(queryError = "搜索关键词不能超过 $MAX_QUERY_LENGTH 个字符")
+                }
+                return
+            }
         }
 
         searchJob?.cancel()
-        searchJob = viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    result = OnlineSearchResult.Loading,
-                    queryError = null,
-                    errorDialogMessage = null,
-                )
-            }
+        val currentRequest = ++requestId
+        _uiState.update {
+            it.copy(
+                result = if (fullLoading) OnlineSearchResult.Loading else it.result,
+                queryError = null,
+                isRefreshing = !fullLoading,
+                errorDialogMessage = null,
+            )
+        }
 
+        searchJob = viewModelScope.launch {
             when (val response = repository.searchRecipes(query)) {
                 is NetworkResult.Success -> {
                     // 用户可能在请求期间修改了关键词；旧请求结果直接丢弃。
-                    if (_uiState.value.query.trim() != query) return@launch
+                    if (requestId != currentRequest || _uiState.value.query.trim() != query) {
+                        return@launch
+                    }
                     _uiState.update {
                         it.copy(
                             result = if (response.data.isEmpty()) {
@@ -86,15 +118,24 @@ class OnlineRecipeListViewModel(
                             } else {
                                 OnlineSearchResult.Success(response.data)
                             },
+                            isRefreshing = false,
                         )
                     }
                 }
 
                 is NetworkResult.Failure -> {
-                    if (_uiState.value.query.trim() != query) return@launch
+                    if (requestId != currentRequest || _uiState.value.query.trim() != query) {
+                        return@launch
+                    }
                     _uiState.update {
                         it.copy(
-                            result = OnlineSearchResult.Error(response.message),
+                            result = if (fullLoading) {
+                                OnlineSearchResult.Error(response.message)
+                            } else {
+                                // 刷新失败时保留已有结果，仅弹窗提示，避免用户丢失当前列表。
+                                it.result
+                            },
+                            isRefreshing = false,
                             errorDialogMessage = response.message,
                         )
                     }
@@ -113,6 +154,8 @@ class OnlineRecipeListViewModel(
     }
 
     companion object {
+        private const val MAX_QUERY_LENGTH = 40
+
         fun factory(repository: OnlineRecipeRepository): ViewModelProvider.Factory = viewModelFactory {
             initializer { OnlineRecipeListViewModel(repository) }
         }

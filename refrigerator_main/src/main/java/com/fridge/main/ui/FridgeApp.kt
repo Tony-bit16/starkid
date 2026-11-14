@@ -6,6 +6,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -13,12 +15,16 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.fridge.main.ui.common.AppErrorHandler
+import com.fridge.main.ui.common.safeNavigate
+import com.fridge.main.ui.common.safeNavigateUp
 import com.fridge.main.ui.navigation.FridgeNavHost
 import com.fridge.main.ui.navigation.Routes
 
@@ -32,13 +38,21 @@ import com.fridge.main.ui.navigation.Routes
 @Composable
 fun FridgeApp(openIngredientsSignal: Int = 0) {
     val navController = rememberNavController()
+    val snackbarHostState = remember { SnackbarHostState() }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+
+    // 统一收集跳转等非数据层异常，使用根 Scaffold 的 Snackbar 提示。
+    LaunchedEffect(Unit) {
+        AppErrorHandler.messages.collect { message ->
+            snackbarHostState.showSnackbar(message)
+        }
+    }
 
     // 通知点击统一回到食材库：清掉详情/新增页，避免返回时又回到旧页面。
     LaunchedEffect(openIngredientsSignal) {
         if (openIngredientsSignal > 0) {
-            navController.navigate(Routes.INGREDIENTS) {
+            navController.safeNavigate(Routes.INGREDIENTS) {
                 popUpTo(navController.graph.findStartDestination().id) { saveState = false }
                 launchSingleTop = true
                 restoreState = true
@@ -65,13 +79,14 @@ fun FridgeApp(openIngredientsSignal: Int = 0) {
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(text = title) },
                 navigationIcon = {
                     if (!isTopLevel) {
                         TextButton(
-                            onClick = { navController.navigateUp() },
+                            onClick = { navController.safeNavigateUp() },
                             modifier = Modifier.padding(start = 4.dp),
                         ) {
                             Text("返回")
@@ -80,12 +95,12 @@ fun FridgeApp(openIngredientsSignal: Int = 0) {
                 },
                 actions = {
                     if (isIngredients) {
-                        TextButton(onClick = { navController.navigate(Routes.ADD_INGREDIENT) }) {
+                        TextButton(onClick = { navController.safeNavigate(Routes.ADD_INGREDIENT) }) {
                             Text("新增")
                         }
                     }
                     if (isRecipes) {
-                        TextButton(onClick = { navController.navigate(Routes.ADD_RECIPE) }) {
+                        TextButton(onClick = { navController.safeNavigate(Routes.ADD_RECIPE) }) {
                             Text("新增")
                         }
                     }
@@ -149,7 +164,7 @@ fun FridgeApp(openIngredientsSignal: Int = 0) {
  * `popUpTo(startDestination)` 防止反复点击底部导航把返回栈越堆越深。
  */
 private fun NavHostController.navigateTopLevel(route: String) {
-    navigate(route) {
+    safeNavigate(route) {
         popUpTo(graph.findStartDestination().id) { saveState = true }
         launchSingleTop = true
         restoreState = true

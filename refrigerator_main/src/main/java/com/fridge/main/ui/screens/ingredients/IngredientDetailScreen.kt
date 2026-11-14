@@ -212,7 +212,7 @@ private fun IngredientDetailContent(
         }
 
         Text(
-            text = "到期提醒与菜谱匹配将在后续模块接入；当前仅支持本地库存的增删改查。",
+            text = "到期提醒会按系统通知设置推送；菜谱库的「推荐菜谱」会结合当前库存给出匹配结果。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

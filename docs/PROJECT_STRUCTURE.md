@@ -74,9 +74,11 @@ Fridge/
 │     │     ├─ FridgeApp.kt           # Scaffold、顶栏、底部「食材库/菜谱库/在线搜索」导航
 │     │     ├─ common/
 │     │     │  ├─ UiState.kt          # Loading/Empty/Error/Success
+│     │     │  ├─ AppErrorHandler.kt  # 错误总线 + safeNavigate/safePopBackStack
 │     │     │  └─ ScreenStateContent.kt # 四态分发，复用 components 下的通用布局
 │     │     ├─ components/
 │     │     │  ├─ StateLayouts.kt     # 通用加载/空/错误态布局
+│     │     │  ├─ RefreshableContent.kt # Material3 下拉刷新容器
 │     │     │  ├─ FridgeComponents.kt # 提示条、卡片、键值行、标签
 │     │     │  ├─ FreshnessPill.kt    # 新鲜/临期/过期统一配色
 │     │     │  └─ NotificationPermissionBanner.kt # 说明、申请、拒绝弹窗、去设置
@@ -165,9 +167,11 @@ Fridge/
   - `recipes/detail/{recipeId}`：本地菜谱详情。
   - `recipes/online`：在线搜索（一级）。
   - `recipes/online/{mealId}`：在线菜谱详情。
-- `FridgeApp.kt`：只负责 Scaffold 与导航外壳，不查询数据库；一级页 3 个底部 Tab，详情/新增显示返回。
+- `FridgeApp.kt`：只负责 Scaffold、根 Snackbar、底部 3 个一级 Tab 与导航外壳，不查询数据库；详情/新增显示返回；所有导航走 safe 扩展函数。
 - `ScreenStateContent.kt`：把 `UiState` 分发到通用加载/空/错误布局，成功态交给页面内容。
 - `StateLayouts.kt`：`LoadingStateLayout`、`EmptyStateLayout`、`ErrorStateLayout`，所有数据页面复用。
+- `AppErrorHandler.kt`：页面跳转等可恢复 UI 异常的错误总线；`safeNavigate`/`safePopBackStack` 捕获导航异常，根 Scaffold Snackbar 展示。
+- `RefreshableContent.kt`：统一的 Material3 `PullToRefreshBox` 包装，仅用于已有内容的列表。
 - `FridgeNavHost.kt`：8 个目的地；食材/菜谱/在线页分别创建 ViewModel，并从 `FridgeApplication` 注入 Repository。
 - `domain/matching/RecipeMatcher.kt`：纯 Kotlin、无 Android/Room 依赖；输入 `MatchableRecipe` 与库存 `typeId` 集合，输出匹配等级/已有/缺少；单测在 `src/test/java/.../RecipeMatcherTest.kt`。
 - `domain/expiry/ExpiryCalculator.kt`：纯函数计算到期日/剩余天数，0..3 天临期；UI 与 Worker 共用，单测在 `src/test/java/.../ExpiryCalculatorTest.kt`。

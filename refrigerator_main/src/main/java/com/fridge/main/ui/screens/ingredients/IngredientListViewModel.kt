@@ -13,9 +13,11 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 
@@ -32,6 +34,10 @@ class IngredientListViewModel(
 ) : ViewModel() {
 
     private val retrySignal = MutableStateFlow(0)
+    private val _isRefreshing = MutableStateFlow(false)
+
+    /** 下拉刷新的独立状态；不覆盖已有列表，只在列表顶部展示刷新指示器。 */
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     val uiState: StateFlow<UiState<List<IngredientUiModel>>> = retrySignal
         .flatMapLatest {
@@ -43,7 +49,10 @@ class IngredientListViewModel(
                         UiState.Success(ingredients.map { it.toUiModel() })
                     }
                 }
+                // 任一次 Room 发射（包括空列表）都代表刷新完成。
+                .onEach { _isRefreshing.value = false }
                 .catch { error ->
+                    _isRefreshing.value = false
                     emit(UiState.Error(error.toIngredientMessage("读取食材失败，请重试")))
                 }
         }
@@ -52,6 +61,13 @@ class IngredientListViewModel(
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = UiState.Loading,
         )
+
+    /** 下拉刷新：重新订阅 Room Flow，并保持当前列表直到新数据到达。 */
+    fun refresh() {
+        if (_isRefreshing.compareAndSet(expect = false, update = true)) {
+            retrySignal.update { it + 1 }
+        }
+    }
 
     /** 重试读取；同时作为首次订阅失败后的恢复入口。 */
     fun retry() {

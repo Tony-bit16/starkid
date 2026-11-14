@@ -19,12 +19,14 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 
@@ -71,6 +73,10 @@ class RecipeListViewModel(
 
     private val retrySignal = MutableStateFlow(0)
     private val filter = MutableStateFlow(RecipeListFilter.ALL)
+    private val _isRefreshing = MutableStateFlow(false)
+
+    /** 下拉刷新状态；筛选切换不触发该指示器。 */
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     private val sourceFlow: Flow<Source> = retrySignal
         .flatMapLatest {
@@ -93,6 +99,9 @@ class RecipeListViewModel(
                 )
             }.catch { error ->
                 emit(Source.Failed(error.toRecipeMessage("读取菜谱失败，请重试")))
+            }.onEach {
+                // 菜谱或库存任一 Flow 首次发射，都视为刷新完成。
+                _isRefreshing.value = false
             }
         }
 
@@ -109,6 +118,13 @@ class RecipeListViewModel(
     fun setFilter(value: RecipeListFilter) {
         if (filter.value != value) {
             filter.value = value
+        }
+    }
+
+    /** 下拉刷新：重新订阅菜谱与库存 Flow，匹配结果会随新库存重算。 */
+    fun refresh() {
+        if (_isRefreshing.compareAndSet(expect = false, update = true)) {
+            retrySignal.update { it + 1 }
         }
     }
 

@@ -1,11 +1,14 @@
 package com.fridge.main.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
 /** 主色：冷藏绿，用于导航、主按钮和强调信息。 */
 private val FridgeGreen = Color(0xFF2F6B4F)
@@ -31,6 +34,15 @@ private val LightColors = lightColorScheme(
     onSurfaceVariant = Color(0xFF444841),
     error = Color(0xFFBA1A1A),
     onError = Color.White,
+)
+
+/** 统一圆角：卡片、输入框、按钮共用一套尺度，避免各页面圆角不一致。 */
+private val FridgeShapes = Shapes(
+    extraSmall = RoundedCornerShape(6.dp),
+    small = RoundedCornerShape(10.dp),
+    medium = RoundedCornerShape(14.dp),
+    large = RoundedCornerShape(18.dp),
+    extraLarge = RoundedCornerShape(24.dp),
 )
 
 private val DarkColors = darkColorScheme(
@@ -61,6 +73,7 @@ fun FridgeTheme(
 ) {
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
+        shapes = FridgeShapes,
         content = content,
     )
 }

@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fridge.main.domain.matching.RecipeMatchResult
 import com.fridge.main.ui.common.ScreenStateContent
+import com.fridge.main.ui.components.RefreshableContent
 import com.fridge.main.ui.model.RecipeUiModel
 
 /**
@@ -40,6 +41,8 @@ import com.fridge.main.ui.model.RecipeUiModel
 @Composable
 fun RecipeListScreen(
     uiState: RecipeListUiState,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
     onFilterChange: (RecipeListFilter) -> Unit,
     onRetry: () -> Unit,
     onRecipeClick: (Long) -> Unit,
@@ -90,27 +93,33 @@ fun RecipeListScreen(
             onEmptyAction = onEmptyAction,
             modifier = Modifier.weight(1f),
         ) { items ->
-            LazyColumn(
+            RefreshableContent(
+                isRefreshing = isRefreshing,
+                onRefresh = onRefresh,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item {
-                    Text(
-                        text = if (uiState.filter == RecipeListFilter.ALL) {
-                            "共 ${items.size} 道菜谱"
-                        } else {
-                            "推荐 ${items.size} 道菜谱"
-                        },
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                items(items = items, key = { it.recipe.id }) { item ->
-                    RecipeCard(
-                        item = item,
-                        onClick = { onRecipeClick(item.recipe.id) },
-                    )
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    item {
+                        Text(
+                            text = if (uiState.filter == RecipeListFilter.ALL) {
+                                "共 ${items.size} 道菜谱"
+                            } else {
+                                "推荐 ${items.size} 道菜谱"
+                            },
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    items(items = items, key = { it.recipe.id }) { item ->
+                        RecipeCard(
+                            item = item,
+                            onClick = { onRecipeClick(item.recipe.id) },
+                        )
+                    }
                 }
             }
         }
