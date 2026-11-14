@@ -5,10 +5,14 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.fridge.main.data.repository.IngredientRepository
 import com.fridge.main.data.repository.RecipeRepository
+import com.fridge.main.domain.matching.RecipeMatchResult
+import com.fridge.main.domain.matching.RecipeMatcher
 import com.fridge.main.ui.common.UiState
 import com.fridge.main.ui.model.RecipeUiModel
 import com.fridge.main.ui.model.toUiModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,7 +22,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -31,6 +35,9 @@ import kotlinx.coroutines.launch
  */
 data class RecipeDetailUiState(
     val content: UiState<RecipeUiModel> = UiState.Loading,
+    val match: RecipeMatchResult? = null,
+    val availableTypeIds: Set<Long> = emptySet(),
+    val hasInventory: Boolean = false,
     val isEditing: Boolean = false,
     val form: RecipeFormState = RecipeFormState.newInstance(),
     val isSaving: Boolean = false,
@@ -50,36 +57,64 @@ data class RecipeDetailUiState(
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecipeDetailViewModel(
     private val repository: RecipeRepository,
+    private val ingredientRepository: IngredientRepository,
     private val recipeId: Long,
 ) : ViewModel() {
 
     private val retrySignal = MutableStateFlow(0)
     private val actionState = MutableStateFlow(ActionState())
 
-    private val contentFlow: Flow<UiState<RecipeUiModel>> = retrySignal.flatMapLatest {
+    private val dataFlow: Flow<DetailData> = retrySignal.flatMapLatest {
         if (recipeId <= 0) {
-            flowOf(UiState.Empty)
+            flowOf(DetailData(content = UiState.Empty))
         } else {
-            repository.observeRecipe(recipeId)
-                .map { recipe ->
-                    if (recipe == null) {
-                        UiState.Empty
-                    } else {
-                        UiState.Success(recipe.toUiModel())
-                    }
+            combine(
+                repository.observeRecipe(recipeId),
+                ingredientRepository.observeIngredients(),
+            ) { recipe, ingredients ->
+                val availableTypeIds = ingredients
+                    .asSequence()
+                    .filter { it.quantity > 0.0 }
+                    .map { it.typeId }
+                    .toSet()
+                val hasInventory = ingredients.any { it.quantity > 0.0 }
+
+                if (recipe == null) {
+                    DetailData(
+                        content = UiState.Empty,
+                        availableTypeIds = availableTypeIds,
+                        hasInventory = hasInventory,
+                    )
+                } else {
+                    DetailData(
+                        content = UiState.Success(recipe.toUiModel()),
+                        match = RecipeMatcher.evaluate(
+                            recipe = recipe.toMatchableRecipe(),
+                            availableTypeIds = availableTypeIds,
+                        ),
+                        availableTypeIds = availableTypeIds,
+                        hasInventory = hasInventory,
+                    )
                 }
-                .catch { error ->
-                    emit(UiState.Error(error.toRecipeMessage("读取菜谱失败，请重试")))
-                }
+            }.catch { error ->
+                emit(
+                    DetailData(
+                        content = UiState.Error(error.toRecipeMessage("读取菜谱失败，请重试")),
+                    ),
+                )
+            }
         }
-    }
+    }.flowOn(Dispatchers.Default)
 
     val uiState: StateFlow<RecipeDetailUiState> = combine(
-        contentFlow,
+        dataFlow,
         actionState,
-    ) { content, action ->
+    ) { data, action ->
         RecipeDetailUiState(
-            content = content,
+            content = data.content,
+            match = data.match,
+            availableTypeIds = data.availableTypeIds,
+            hasInventory = data.hasInventory,
             isEditing = action.isEditing,
             form = action.form,
             isSaving = action.isSaving,
@@ -192,6 +227,13 @@ class RecipeDetailViewModel(
         actionState.update { it.copy(updateSucceeded = false) }
     }
 
+    private data class DetailData(
+        val content: UiState<RecipeUiModel> = UiState.Loading,
+        val match: RecipeMatchResult? = null,
+        val availableTypeIds: Set<Long> = emptySet(),
+        val hasInventory: Boolean = false,
+    )
+
     private data class ActionState(
         val isEditing: Boolean = false,
         val form: RecipeFormState = RecipeFormState.newInstance(),
@@ -204,10 +246,17 @@ class RecipeDetailViewModel(
 
     companion object {
         fun factory(
-            repository: RecipeRepository,
+            recipeRepository: RecipeRepository,
+            ingredientRepository: IngredientRepository,
             recipeId: Long,
         ): ViewModelProvider.Factory = viewModelFactory {
-            initializer { RecipeDetailViewModel(repository, recipeId) }
+            initializer {
+                RecipeDetailViewModel(
+                    repository = recipeRepository,
+                    ingredientRepository = ingredientRepository,
+                    recipeId = recipeId,
+                )
+            }
         }
     }
 }

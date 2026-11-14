@@ -15,7 +15,7 @@ Fridge/
 ├─ docs/
 │  ├─ REQUIREMENTS.md                 # 需求清单、页面清单、权限与验收
 │  ├─ ARCHITECTURE.md                 # MVVM、数据边界、Provider 契约、测试策略
-│  ├─ DATA_MODEL.md                   # v2 表结构、ER 图、迁移与匹配 SQL
+│  ├─ DATA_MODEL.md                   # v2 表结构、ER 图、迁移与匹配口径
 │  ├─ MVVM_LAYER_DESIGN.md            # Entity/Dao/Repository/ViewModel 契约
 │  ├─ UI_PROTOTYPE.md                 # 10 个页面布局、交互、状态与跳转
 │  └─ PROJECT_STRUCTURE.md            # 本文件
@@ -29,6 +29,9 @@ Fridge/
 │     ├─ java/com/fridge/main/
 │     │  ├─ FridgeApplication.kt      # 懒加载数据库 + 食材/菜谱/在线菜谱 Repository 单例
 │     │  ├─ MainActivity.kt           # 唯一 Activity，edge-to-edge + Compose
+│     │  ├─ domain/
+│     │  │  └─ matching/
+│     │  │     └─ RecipeMatcher.kt    # 纯 Kotlin 匹配算法：分级、排序、已有/缺少
 │     │  ├─ data/
 │     │  │  ├─ local/
 │     │  │  │  ├─ FridgeDatabase.kt   # @Database version=2，MIGRATION_1_2
@@ -97,6 +100,8 @@ Fridge/
 │     │     │     ├─ RecipeForm.kt
 │     │     │     ├─ RecipeFormState.kt
 │     │     │     ├─ RecipeError.kt
+│     │     │     ├─ RecipeMatchMapper.kt # RecipeWithIngredients → MatchableRecipe
+│     │     │     ├─ RecipeMatchComponents.kt # 匹配等级徽标
 │     │     │     ├─ OnlineRecipeListScreen.kt
 │     │     │     ├─ OnlineRecipeListViewModel.kt
 │     │     │     ├─ OnlineRecipeDetailScreen.kt
@@ -154,6 +159,7 @@ Fridge/
 - `ScreenStateContent.kt`：把 `UiState` 分发到通用加载/空/错误布局，成功态交给页面内容。
 - `StateLayouts.kt`：`LoadingStateLayout`、`EmptyStateLayout`、`ErrorStateLayout`，所有数据页面复用。
 - `FridgeNavHost.kt`：8 个目的地；食材/菜谱/在线页分别创建 ViewModel，并从 `FridgeApplication` 注入 Repository。
+- `domain/matching/RecipeMatcher.kt`：纯 Kotlin、无 Android/Room 依赖；输入 `MatchableRecipe` 与库存 `typeId` 集合，输出匹配等级/已有/缺少；单测在 `src/test/java/.../RecipeMatcherTest.kt`。
 - `data/local/`：不依赖 UI；Dao 返回 `Flow` 或 `suspend`，禁止在主线程调用。
 - `data/remote/`：不依赖 UI；只由 `DefaultOnlineRecipeRepository` 调用；`NetworkResult` 统一异常，Retrofit 接口与 DTO 不做业务判断。
 - `data/local/entity/IngredientType.kt`：食材品类主数据，`normalized_name` 唯一；菜谱与库存共同引用。
@@ -164,11 +170,11 @@ Fridge/
 - `ui/model/IngredientUiModel.kt`：Entity → UI 的日期/数量/剩余天数转换，Composable 不直接做时间计算。
 - `ui/model/RecipeUiModel.kt`：菜谱与所需食材的展示模型，拍平 `RecipeWithIngredients` 并按食材名排序。
 - `ui/screens/ingredients/`：列表、详情、新增三套 Screen + ViewModel，共用 `IngredientForm`/`IngredientFormState`；`IngredientError` 做统一中文错误映射。
-- `ui/screens/recipes/`：本地菜谱列表/详情/新增三套 Screen + ViewModel，共用 `RecipeForm`/`RecipeFormState`；在线搜索/详情两套 Screen + ViewModel；`RecipeError` 做本地错误映射。
+- `ui/screens/recipes/`：本地菜谱列表/详情/新增三套 Screen + ViewModel，列表提供“全部/推荐”筛选与匹配徽标，详情提供已有/缺少高亮；共用 `RecipeForm`/`RecipeFormState`；在线搜索/详情两套 Screen + ViewModel；`RecipeError` 做本地错误映射，`RecipeMatchMapper`/`RecipeMatchComponents` 负责匹配展示映射与徽标。
 
 ### 数据模型文档
 
-- `DATA_MODEL.md`：v2 ER 图、四张表字段/索引/外键、迁移步骤、匹配 SQL 草案。
+- `DATA_MODEL.md`：v2 ER 图、四张表字段/索引/外键、迁移步骤、`RecipeMatcher` 匹配口径与边界。
 - `MVVM_LAYER_DESIGN.md`：分层职责、DAO/Repository/ViewModel 契约、线程与错误映射。
 - `UI_PROTOTYPE.md`：页面布局、组件、交互、状态矩阵、权限降级与可访问性。
 

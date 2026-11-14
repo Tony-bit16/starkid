@@ -21,6 +21,8 @@ fun <T> ScreenStateContent(
     emptyTitle: String,
     emptyMessage: String,
     modifier: Modifier = Modifier,
+    emptyActionLabel: String? = null,
+    onEmptyAction: (() -> Unit)? = null,
     content: @Composable (T) -> Unit,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
@@ -29,6 +31,8 @@ fun <T> ScreenStateContent(
             UiState.Empty -> EmptyStateLayout(
                 title = emptyTitle,
                 message = emptyMessage,
+                actionLabel = emptyActionLabel,
+                onAction = onEmptyAction,
             )
             is UiState.Error -> ErrorStateLayout(
                 message = state.message,

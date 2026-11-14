@@ -1,8 +1,9 @@
 # MVVM 全链路分层设计
 
-> 第二轮定义结构与接口；第四轮实现食材模块，第五轮实现菜谱模块，第六轮实现在线菜谱搜索。
-> 食材/本地菜谱各 3 个 ViewModel、在线菜谱 2 个 ViewModel 与 3 个 Repository 均已落地；
-> 菜谱匹配与看板统计仍为后续。本文保留目标契约，实际实现以 `com.fridge.main` 源码为准。
+> 第二轮定义结构与接口；第四轮实现食材模块，第五轮实现菜谱模块，第六轮实现在线菜谱搜索，
+> 第七轮实现食材匹配推荐。食材/本地菜谱各 3 个 ViewModel、在线菜谱 2 个 ViewModel、
+> 3 个 Repository 与 `RecipeMatcher` 均已落地；看板统计仍为后续。
+> 本文保留目标契约，实际实现以 `com.fridge.main` 源码为准。
 
 ## 1. 分层与依赖方向
 
@@ -11,10 +12,12 @@ Compose Screen
    │  collectAsStateWithLifecycle()
    ▼
 ViewModel
-   │  StateFlow<UiState> + 一次性事件
-   ▼
-Repository（接口/实现）
-   │  业务校验 / 事务 / 时间计算 / 匹配 / 错误映射
+   ├─ StateFlow<UiState> + 一次性事件
+   ├──────────────────────────┐
+   ▼                          ▼
+Repository（接口/实现）     Domain（RecipeMatcher 纯算法）
+   │  业务校验 / 事务 /       │  匹配等级、已有/缺少食材
+   │  时间计算 / 错误映射      │  不依赖 Android/Room
    ├─────────────────────────┐
    ▼                         ▼
 DAO（Room）              Remote API（Retrofit/OkHttp）
@@ -25,17 +28,19 @@ SQLite（fridge.db）      TheMealDB（HTTPS）
 
 硬规则：
 
-1. 依赖只能向下：UI → ViewModel → Repository → DAO/Remote。DAO 不引用 Repository，
-   Repository 不引用 ViewModel，Entity 不引用 UI 模型。
+1. 依赖只能向下：UI → ViewModel → Repository → DAO/Remote；Domain 只被 ViewModel
+   调用。DAO 不引用 Repository，Repository 不引用 ViewModel，Entity 不引用 UI 模型。
 2. Composable 不直接调用 DAO/Repository，不持有 `Context` 做数据库/网络操作。
 3. ViewModel 不持有 `Activity`/`Fragment`/`View`，只依赖 Repository 与
    `SavedStateHandle`。
 4. 主线程不做 IO：Room 的 `suspend`/`Flow` 由 Room 执行器调度；Retrofit 调用统一经
    `safeApiCall` 切到 `Dispatchers.IO`；CSV、文件、ContentResolver 查询显式
    `withContext(Dispatchers.IO)`。
-5. 网络异常不穿透到 UI：`BaseRemoteDataSource` 统一转换成 `NetworkResult.Failure`，
+5. 匹配是纯 CPU 计算：ViewModel 在 `Dispatchers.Default` 调用 `RecipeMatcher`，不放进
+   Repository，也不依赖 Android/Room 类型。
+6. 网络异常不穿透到 UI：`BaseRemoteDataSource` 统一转换成 `NetworkResult.Failure`，
    ViewModel 只接收中文文案。
-6. 一次性事件（导航、Snackbar）用 `Channel`/`SharedFlow`，不塞进 `UiState`，
+7. 一次性事件（导航、Snackbar）用 `Channel`/`SharedFlow`，不塞进 `UiState`，
    避免旋转屏幕后重复弹窗/重复跳转；在线页的“网络失败弹窗”由 `errorDialogMessage`
    状态位 + `dismissErrorDialog()` 消费，不做成一次性 Flow。
 
@@ -43,6 +48,9 @@ SQLite（fridge.db）      TheMealDB（HTTPS）
 
 ```text
 com.fridge.main/
+├─ domain/
+│  └─ matching/
+│     └─ RecipeMatcher.kt          # 纯 Kotlin 匹配算法（无 Android/Room 依赖）
 ├─ data/
 │  ├─ local/
 │  │  ├─ FridgeDatabase.kt
@@ -103,8 +111,9 @@ com.fridge.dashboard/
 | Entity | 表结构、列名、主键、索引、外键 | 业务校验、单位换算、UI 文案 |
 | DAO | 单表/关联查询、insert/update/delete、事务边界内的原子操作 | 多步业务编排、错误提示 |
 | Relation | 用 `@Embedded` + `@Relation` 组装一对多/多对一结果 | 业务规则 |
-| Repository | 组合多个 DAO、事务、校验、规范化、到期计算、匹配、异常映射 | 持有 UI 状态、导航 |
-| ViewModel | 把 Repository 的 Flow/suspend 转成 `StateFlow<UiState>`；处理用户事件 | 直接拼 SQL、持有 Context |
+| Repository | 组合多个 DAO、事务、校验、规范化、到期计算、异常映射 | 持有 UI 状态、导航、CPU 匹配 |
+| Domain | 纯函数业务规则（`RecipeMatcher` 分级/排序） | 访问数据库/网络、持有 Context |
+| ViewModel | 把 Repository 的 Flow/suspend 转成 `StateFlow<UiState>`；处理用户事件；在 `Dispatchers.Default` 调用 Domain | 直接拼 SQL、持有 Context |
 | Screen | 渲染状态、发事件、导航 | 直接访问数据库、做业务计算 |
 
 ### 3.1 Entity ↔ UI 模型
@@ -237,13 +246,12 @@ interface IngredientRepository {
 interface RecipeRepository {
     fun observeRecipes(): Flow<List<RecipeWithIngredients>>
     fun observeRecipe(id: Long): Flow<RecipeWithIngredients?>
-    fun observeMatches(): Flow<List<RecipeMatch>>
     suspend fun saveRecipe(draft: RecipeDraft): Result<Long>
     suspend fun deleteRecipe(id: Long): Result<Unit>
 }
 ```
 
-实现要点（`saveRecipe` / `deleteRecipe` 已落地；`observeMatches` 仅返回空列表）：
+实现要点（`saveRecipe` / `deleteRecipe` 已落地）：
 
 1. `saveRecipe` 在事务中：
    - 校验菜名、步骤、每项食材名称/数量；
@@ -251,8 +259,9 @@ interface RecipeRepository {
    - 新增时 `insertRecipe` + `insertRecipeIngredients`；
    - 编辑时 `updateRecipe` + `deleteIngredientsOfRecipe` + 重新插入；
    - 返回菜谱 id。
-2. `observeMatches` 本轮固定返回 `flowOf(emptyList())`；匹配算法留到下一轮。
-3. 匹配落地后，`RecipeMatch.missingIngredients` 用于详情页“还差：鸡蛋、葱”。
+2. 匹配不在 Repository 中实现；ViewModel 组合 `observeRecipes()` 与
+   `observeIngredients()` 后，在 `Dispatchers.Default` 调 `RecipeMatcher`。
+3. 这样同一套规则同时服务列表推荐与详情高亮，避免 SQL 与 Kotlin 两套口径。
 
 ### 5.3 OnlineRecipeRepository
 
@@ -412,55 +421,77 @@ class AddIngredientViewModel(
 ### 6.4 RecipeListViewModel
 
 ```kotlin
+enum class RecipeListFilter { ALL, RECOMMENDED }
+enum class RecipeListEmptyReason { NO_RECIPES, NO_INGREDIENTS, NO_MATCHES }
+
 data class RecipeListItem(
-    val id: Long,
-    val name: String,
-    val ingredientSummary: String,
-    val matchStatus: RecipeMatchStatus,
+    val recipe: RecipeUiModel,
+    val match: RecipeMatchResult? = null,
+)
+
+data class RecipeListUiState(
+    val filter: RecipeListFilter = RecipeListFilter.ALL,
+    val content: UiState<List<RecipeListItem>> = UiState.Loading,
+    val emptyReason: RecipeListEmptyReason? = null,
 )
 
 class RecipeListViewModel(
-    private val repository: RecipeRepository,
+    private val recipeRepository: RecipeRepository,
+    private val ingredientRepository: IngredientRepository,
 ) : ViewModel() {
-    val uiState: StateFlow<UiState<List<RecipeListItem>>>
-    fun onQueryChange(query: String)
-    fun onRetry()
+    val uiState: StateFlow<RecipeListUiState>
+    fun setFilter(filter: RecipeListFilter)
+    fun retry()
 }
 ```
 
-- 搜索、匹配徽标为后续能力；当前列表按菜名排序，卡片展示食材摘要与步数。
-- 新增/编辑共用 `RecipeForm`；列表空态引导点击右上角“新增”。
+- 同时观察菜谱与库存；库存只取 `quantity > 0` 的 `typeId` 集合。
+- 全部：直接映射，不算匹配；推荐：无菜谱 → `NO_RECIPES`，无库存 → `NO_INGREDIENTS`，
+  否则在 `Dispatchers.Default` 调 `RecipeMatcher.matchAll`，空结果 → `NO_MATCHES`。
+- 推荐卡片展示等级、`已备齐 N/M`、全部缺少食材；空态动作分别去新增食材/在线搜索。
 
 ### 6.5 RecipeDetailViewModel
 
 ```kotlin
 data class RecipeIngredientUiModel(
+    val typeId: Long,
     val name: String,
+    val category: String,
     val quantityLabel: String,
-    val availability: IngredientAvailability,
-    val missingLabel: String?,
 )
 
-data class RecipeDetailUiModel(
-    val id: Long,
-    val name: String,
-    val matchStatus: RecipeMatchStatus,
-    val ingredients: List<RecipeIngredientUiModel>,
-    val steps: List<String>,
+data class RecipeDetailUiState(
+    val content: UiState<RecipeUiModel> = UiState.Loading,
+    val isEditing: Boolean = false,
+    val form: RecipeFormState = RecipeFormState.newInstance(),
+    val isSaving: Boolean = false,
+    val isDeleting: Boolean = false,
+    val errorMessage: String? = null,
+    val updateSucceeded: Boolean = false,
+    val deleted: Boolean = false,
+    val match: RecipeMatchResult? = null,
+    val availableTypeIds: Set<Long> = emptySet(),
+    val hasInventory: Boolean = false,
 )
 
 class RecipeDetailViewModel(
-    savedStateHandle: SavedStateHandle,
-    private val repository: RecipeRepository,
+    private val recipeRepository: RecipeRepository,
+    private val ingredientRepository: IngredientRepository,
+    private val recipeId: Long,
 ) : ViewModel() {
-    val uiState: StateFlow<UiState<RecipeDetailUiModel>>
-    fun onRetry()
+    val uiState: StateFlow<RecipeDetailUiState>
+    fun retry()
+    fun startEdit()
+    fun cancelEdit()
+    fun save()
+    fun delete()
 }
 ```
 
-- `steps` 按 `\n` 拆分，过滤空行；展示时重新编号，不依赖用户输入编号。
-- 食材可用性三态：`ENOUGH / SHORT / MISSING`，待匹配算法落地后映射。
-- 当前详情页已提供编辑、删除（二次确认）；编辑复用 `RecipeForm`。
+- `combine` 菜谱与库存后调 `RecipeMatcher.evaluate`；`flowOn(Dispatchers.Default)`。
+- 食材行按 `typeId` 是否在 `availableTypeIds` 显示绿“已有”/红“缺少”；顶部显示等级与
+  `已备齐 N/M`；无库存时提示先去添加食材。
+- `steps` 按行拆分，展示时重新编号；编辑/删除保留原逻辑，删除二次确认。
 
 ### 6.6 OnlineRecipeListViewModel
 
@@ -619,6 +650,7 @@ ViewModel 由 `FridgeNavHost` 用 `viewModel(factory = ...)` 创建，Repository
 | --- | --- |
 | DAO | 内存 Room：插入、到期区间、关联查询、级联删除、RESTRICT |
 | Repository | fake DAO：名称规范化、品类复用、事务回滚、校验、错误映射 |
+| Domain | `RecipeMatcherTest`：三级分类、稳定排序、已有/缺少名称、空库存、空菜谱 |
 | ViewModel | `kotlinx-coroutines-test` + Turbine：四态顺序、防抖、事件只发一次 |
 | Network | MockWebServer：搜索/详情 JSON、404/500、超时、断网、空 meals；断言 `NetworkResult` |
 | Compose | Loading/Empty/Error/Success 快照；点击卡片路由；表单校验 |
@@ -630,17 +662,20 @@ ViewModel 由 `FridgeNavHost` 用 `viewModel(factory = ...)` 创建，Repository
 已完成：
 
 - 数据表 v2（品类主数据 + 库存 + 菜谱 + 多对多关联）。
-- Repository 接口与 Draft/Match 模型。
+- Repository 接口与 Draft 模型。
 - `DefaultIngredientRepository`：事务、校验、品类复用、异常包装。
 - `DefaultRecipeRepository`：事务、菜谱/食材关联维护、校验、异常包装。
 - `DefaultOnlineRecipeRepository` + `NetworkResult`：TheMealDB 搜索/详情、异常文案、保存到本地。
+- `domain/matching/RecipeMatcher`：完全可制作/缺 1 种/缺多种分级、稳定排序、已有/缺少名称。
+- `RecipeMatcherTest`：5 个纯 JVM 用例通过（含空菜谱排序）。
 - 食材 3 个 ViewModel、本地菜谱 3 个 ViewModel、在线菜谱 2 个 ViewModel。
 - 食材/菜谱列表、详情、新增/编辑页面接入 Room 与四态 UI；在线搜索/详情接入网络与三 Tab 导航。
+- 菜谱列表“全部/推荐”筛选、等级徽标、已备齐数量、缺少食材；详情食材已有/缺少高亮。
 - 菜谱新增/编辑共用 `RecipeForm`，支持动态食材清单与多行做法；在线菜谱保存复用同一事务。
 
 未完成（下一轮）：
 
-- 现有食材匹配菜谱的“能做 / 部分能做”算法与 `observeMatches` 实现。
-- 本地菜谱关键词搜索、匹配徽标、食材可用性提示。
+- 本地菜谱关键词搜索（当前搜索只针对在线 API）。
+- 匹配的数量/单位换算、临期优先、别名归一。
 - 看板真实统计数据与 CSV 导出。
 - 通知、Provider、CSV 写文件。

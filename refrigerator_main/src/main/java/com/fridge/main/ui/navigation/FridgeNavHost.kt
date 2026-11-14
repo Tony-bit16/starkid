@@ -103,15 +103,21 @@ fun FridgeNavHost(
 
         composable(route = Routes.RECIPES) {
             val viewModel: RecipeListViewModel = viewModel(
-                factory = RecipeListViewModel.factory(recipeRepository),
+                factory = RecipeListViewModel.factory(
+                    recipeRepository = recipeRepository,
+                    ingredientRepository = ingredientRepository,
+                ),
             )
             val state by viewModel.uiState.collectAsStateWithLifecycle()
             RecipeListScreen(
-                state = state,
+                uiState = state,
+                onFilterChange = viewModel::setFilter,
                 onRetry = viewModel::retry,
                 onRecipeClick = { id ->
                     navController.navigate(Routes.recipeDetail(id))
                 },
+                onGoOnline = { navController.navigate(Routes.ONLINE_RECIPES) },
+                onAddIngredient = { navController.navigate(Routes.ADD_INGREDIENT) },
             )
         }
 
@@ -134,7 +140,11 @@ fun FridgeNavHost(
         ) { backStackEntry ->
             val id = backStackEntry.arguments?.getLong("recipeId") ?: -1L
             val viewModel: RecipeDetailViewModel = viewModel(
-                factory = RecipeDetailViewModel.factory(recipeRepository, id),
+                factory = RecipeDetailViewModel.factory(
+                    recipeRepository = recipeRepository,
+                    ingredientRepository = ingredientRepository,
+                    recipeId = id,
+                ),
             )
             val state by viewModel.uiState.collectAsStateWithLifecycle()
             RecipeDetailScreen(

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -33,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.fridge.main.domain.matching.RecipeMatchResult
 import com.fridge.main.ui.common.ScreenStateContent
 import com.fridge.main.ui.components.SectionCard
 import com.fridge.main.ui.model.RecipeIngredientUiModel
@@ -102,6 +104,9 @@ fun RecipeDetailScreen(
             } else {
                 RecipeDetailContent(
                     recipe = recipe,
+                    match = uiState.match,
+                    availableTypeIds = uiState.availableTypeIds,
+                    hasInventory = uiState.hasInventory,
                     isDeleting = uiState.isDeleting,
                     onEdit = onStartEdit,
                     onDelete = { showDeleteDialog = true },
@@ -151,6 +156,9 @@ fun RecipeDetailScreen(
 @Composable
 private fun RecipeDetailContent(
     recipe: RecipeUiModel,
+    match: RecipeMatchResult?,
+    availableTypeIds: Set<Long>,
+    hasInventory: Boolean,
     isDeleting: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -174,9 +182,31 @@ private fun RecipeDetailContent(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 6.dp),
             )
+            if (match != null && match.totalCount > 0) {
+                Row(
+                    modifier = Modifier.padding(top = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RecipeMatchBadge(level = match.level)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "${match.availableCount}/${match.totalCount} 种食材已备齐",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
 
         SectionCard(title = "所需食材") {
+            if (!hasInventory) {
+                Text(
+                    text = "冰箱里还没有食材，以下食材均标记为缺少；添加后会自动更新匹配状态。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
             if (recipe.ingredients.isEmpty()) {
                 Text(
                     text = "这道菜谱还没有填写食材。",
@@ -185,7 +215,10 @@ private fun RecipeDetailContent(
                 )
             } else {
                 recipe.ingredients.forEach { ingredient ->
-                    IngredientLine(ingredient = ingredient)
+                    IngredientLine(
+                        ingredient = ingredient,
+                        available = ingredient.typeId in availableTypeIds,
+                    )
                 }
             }
         }
@@ -255,7 +288,7 @@ private fun RecipeDetailContent(
         }
 
         Text(
-            text = "提示：根据现有食材判断“能做 / 部分能做”的匹配将在后续模块接入。",
+            text = "匹配结果会随冰箱库存和菜谱内容自动刷新。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -263,9 +296,31 @@ private fun RecipeDetailContent(
 }
 
 @Composable
-private fun IngredientLine(ingredient: RecipeIngredientUiModel) {
+private fun IngredientLine(
+    ingredient: RecipeIngredientUiModel,
+    available: Boolean,
+) {
+    // 已有食材用主题绿，缺少食材用错误红，同时保留文字“已有/缺少”避免只靠颜色传达信息。
+    val tint = if (available) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.error
+    }
+    val chipContainer = if (available) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        MaterialTheme.colorScheme.errorContainer
+    }
+    val chipContent = if (available) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onErrorContainer
+    }
+
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -276,13 +331,15 @@ private fun IngredientLine(ingredient: RecipeIngredientUiModel) {
             Text(
                 text = "•",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
+                color = tint,
             )
             Spacer(modifier = Modifier.width(8.dp))
             Column {
                 Text(
                     text = ingredient.name,
                     style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (available) FontWeight.Medium else FontWeight.SemiBold,
+                    color = tint,
                 )
                 if (ingredient.category.isNotBlank()) {
                     Text(
@@ -293,10 +350,25 @@ private fun IngredientLine(ingredient: RecipeIngredientUiModel) {
                 }
             }
         }
-        Text(
-            text = ingredient.quantityLabel,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-        )
+
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = ingredient.quantityLabel,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+            )
+            Spacer(modifier = Modifier.size(4.dp))
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = chipContainer,
+                contentColor = chipContent,
+            ) {
+                Text(
+                    text = if (available) "已有" else "缺少",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
+        }
     }
 }

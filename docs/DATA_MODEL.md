@@ -195,38 +195,29 @@ daysLeft  = ceil((expiresAt - now) / 86_400_000.0)
 `stored_at` 单列索引做范围扫描。当前数据量（家庭冰箱）很小，全表扫描可接受；
 如果未来数据量增大，可增加生成列 `expires_at` 并为其建索引，但需要新的 Migration。
 
-### 6.2 匹配 SQL 草案（后续 Repository 实现）
+### 6.2 匹配口径（`RecipeMatcher` 纯算法）
 
-```sql
-WITH stock AS (
-    SELECT type_id, SUM(quantity) AS available
-    FROM ingredients
-    WHERE quantity > 0
-    GROUP BY type_id
-)
-SELECT
-    r.id,
-    r.name,
-    COUNT(ri.type_id) AS required_count,
-    SUM(CASE WHEN COALESCE(s.available, 0) >= ri.quantity THEN 1 ELSE 0 END) AS satisfied_count
-FROM recipes r
-JOIN recipe_ingredients ri ON ri.recipe_id = r.id
-LEFT JOIN stock s ON s.type_id = ri.type_id
-GROUP BY r.id, r.name;
-```
+当前不写匹配 SQL，也不在 SQLite 中聚合数量。Repository 只提供
+`RecipeWithIngredients` 与库存批次，ViewModel 在 `Dispatchers.Default`：
+
+1. 过滤 `quantity > 0` 的库存批次，收集 `type_id` 集合；
+2. 将菜谱关系映射为 `MatchableRecipe`；
+3. 调用 `RecipeMatcher.matchAll` / `evaluate`。
 
 结果映射：
 
-- `satisfied_count = required_count` → `CAN_COOK`（能做）。
-- `0 < satisfied_count < required_count` → `PARTIAL`（部分能做）。
-- `satisfied_count = 0` → `CANNOT_COOK`（不能做）。
+- 全部 `type_id` 都有库存 → `FULLY_COOKABLE`（完全可制作）；
+- 只缺 1 种 → `MISSING_ONE`（缺少 1 种食材）；
+- 缺 2 种及以上 → `MISSING_MANY`（缺少多种食材）；
+- 空食材菜谱按 `MISSING_MANY` 处理。
 
-限制：
+限制（当前明确边界）：
 
-- 不做单位换算：1 kg 与 500 g 目前不能自动相加；单位不一致时按“有库存”处理，
-  数量比较只在单位相同时生效。
+- 只判断品类“有库存”，不比较 `quantity` 是否足够；菜谱要 3 个鸡蛋、库存 1 个仍算“完全可制作”。
+- 不做单位换算（1 kg 与 500 g 不自动相加），也不考虑临期食材优先级。
 - 不处理别名/同义词；后续可加 `ingredient_aliases` 表。
-- 匹配是只读查询，不应写回数据库。
+- 匹配是只读计算，不写回数据库；菜谱或库存 Flow 变化时自动重算。
+- 数据量增大后可在 SQL 中先做粗筛，但最终等级仍由同一个纯算法定义，避免两套口径。
 
 ## 7. v1 → v2 迁移
 

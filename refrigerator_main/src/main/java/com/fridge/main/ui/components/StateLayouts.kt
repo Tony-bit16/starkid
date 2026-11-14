@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -54,6 +55,8 @@ fun EmptyStateLayout(
     title: String,
     message: String,
     modifier: Modifier = Modifier,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
 ) {
     Column(
         modifier = modifier
@@ -81,6 +84,14 @@ fun EmptyStateLayout(
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp),
         )
+        if (actionLabel != null && onAction != null) {
+            OutlinedButton(
+                onClick = onAction,
+                modifier = Modifier.padding(top = 20.dp),
+            ) {
+                Text(actionLabel)
+            }
+        }
     }
 }
 

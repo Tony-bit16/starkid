@@ -11,7 +11,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOf
 import java.util.Locale
 
 /**
@@ -39,14 +38,6 @@ class DefaultRecipeRepository(
     override fun observeRecipe(recipeId: Long): Flow<RecipeWithIngredients?> = flow {
         emitAll(database.recipeDao().observeByIdWithIngredients(recipeId))
     }
-
-    /**
-     * 菜谱匹配本轮不实现。
-     *
-     * 返回空列表而不是抛异常，保证后续接入匹配算法前，现有调用方也不会崩溃；
-     * UI 目前不订阅该 Flow。
-     */
-    override fun observeMatches(): Flow<List<RecipeMatch>> = flowOf(emptyList())
 
     override suspend fun saveRecipe(draft: RecipeDraft): Result<Long> = dataResult {
         val clean = draft.validated()
