@@ -10,8 +10,8 @@
 │ com.fridge.main             │        │ com.fridge.dashboard         │
 │                             │        │                              │
 │ Compose UI                  │        │ Compose UI                   │
-│ ViewModel                   │        │ ViewModel（后续）             │
-│ Repository                  │        │ StatsRepository（后续）       │
+│ ViewModel                   │        │ ViewModel                   │
+│ Repository                  │        │ DashboardRepository          │
 │ Room DAO / fridge.db        │        │ ContentResolver              │
 │        │                    │        │        │                     │
 │        └── 只读 ContentProvider ◄─────┼────────┘                     │
@@ -25,7 +25,7 @@
 
 ## 2. 主 App 分层
 
-目标结构（食材与菜谱模块均已按此落地；看板仍为后续）：
+目标结构（主 App 食材/菜谱模块与看板数据通道均已落地）：
 
 ```text
 UI（Compose Screen）
@@ -58,7 +58,7 @@ ViewModel
 - ViewModel：食材 3 个、本地菜谱 3 个、在线搜索/详情 2 个，通过 `StateFlow` 暴露四态或表单/操作状态；菜谱列表/详情额外观察库存 Flow 并调用匹配算法。
 - 菜谱新增/编辑共用 `RecipeForm`，食材清单按行动态增删；菜谱详情通过 Room Flow 自动刷新。
 - 在线菜谱详情保存时复用 `RecipeRepository.saveRecipe`，本地列表由同一个 Room Flow 自动刷新。
-- 看板仍为静态演示。
+- 看板已接真实数据通道：`DashboardHomeViewModel` → `DashboardRepository` → `IngredientProviderClient` → `ContentResolver`；主页展示食材明细，图表与 CSV 尚未接入。
 - `FridgeApplication` 懒加载数据库与 Repository，并暴露 `ingredientRepository`、`recipeRepository`、`onlineRecipeRepository` 单例；`onCreate` 创建 `expiry_reminder` 渠道并调度每日 09:00 检查。
 - `notification/` 与 `work/` 不依赖 ViewModel：`ExpiryCheckWorker` 通过 `IngredientRepository.getAllIngredients()` 读取库存，按 `ExpiryCalculator` 筛选后调用 `ExpiryNotifications`。
 
@@ -228,49 +228,62 @@ expiresAt = stored_at + shelf_life_days * 86_400_000L
 - 每次改表都提交生成的 schema JSON，并添加 Migration 测试。
 - 旧数据同名但分类/单位不同的记录，迁移时按“先出现者”合并；后续可在设置页提供品类合并/别名，不影响本轮表结构。
 
-## 4. 跨 App 数据契约（后续实现）
+## 4. 跨 App 数据契约（已实现）
 
-### 4.1 权限
+### 4.1 权限与 Provider
 
-主 App Manifest：
+主 App Manifest 声明两个 signature 权限（读给看板，写保留给未来可信组件）：
 
 ```xml
 <permission
-    android:name="com.fridge.main.permission.READ_STATS"
+    android:name="com.fridge.main.permission.READ_INGREDIENTS"
+    android:protectionLevel="signature" />
+<permission
+    android:name="com.fridge.main.permission.WRITE_INGREDIENTS"
     android:protectionLevel="signature" />
 
 <provider
-    android:name=".provider.StatsProvider"
+    android:name=".provider.IngredientContentProvider"
     android:authorities="com.fridge.main.provider"
     android:exported="true"
-    android:readPermission="com.fridge.main.permission.READ_STATS" />
+    android:readPermission="com.fridge.main.permission.READ_INGREDIENTS"
+    android:writePermission="com.fridge.main.permission.WRITE_INGREDIENTS" />
 ```
 
 看板 Manifest：
 
 ```xml
-<uses-permission android:name="com.fridge.main.permission.READ_STATS" />
+<uses-permission android:name="com.fridge.main.permission.READ_INGREDIENTS" />
+<queries>
+    <provider android:authorities="com.fridge.main.provider" />
+</queries>
 ```
 
 - `signature` 权限要求两个 APK 使用同一签名证书；debug 构建使用同一台机器的 debug keystore 即可，release 必须配置统一签名。
-- Provider 只实现 `query`，`insert/update/delete` 抛 `UnsupportedOperationException`。
-- 不建议 `android:grantUriPermissions="true"` 之外再暴露写权限。
+- `IngredientContentProvider` 只实现 `query`；`insert/update/delete/bulkInsert` 返回 `null` 或 `0`，不在 Provider 内修改数据。
+- `onCreate` 返回 `true`；`query` 显式校验调用方 UID 与 `READ_INGREDIENTS` 权限，再查询 Room。
+- 查询通过 `runBlocking(Dispatchers.IO)` 调 `IngredientDao.findAll()`，避免阻塞 Binder 线程。
 
-### 4.2 URI 与字段（草案）
+### 4.2 URI 与字段
 
 | URI | 内容 |
 | --- | --- |
-| `content://com.fridge.main.provider/stats/summary` | 食材品种数、临期数、过期数 |
-| `content://com.fridge.main.provider/stats/categories` | 分类、品类数、库存总量、临期数 |
-| `content://com.fridge.main.provider/stats/expiring` | 临期/过期食材的聚合行 |
+| `content://com.fridge.main.provider/ingredients` | 完整食材库存行，只读 |
+
+列契约：
+
+```text
+_id, type_id, name, category, stored_at, shelf_life_days, quantity, unit
+```
 
 约束：
 
-- 固定 projection 白名单，拒绝任意列名拼接 SQL。
-- `selection` 只允许固定参数（如 `days`），不把用户输入直接拼进 SQL。
+- 固定 projection 白名单，未知列抛 `IllegalArgumentException`，拒绝任意列名。
 - 返回 `MatrixCursor` 的列名作为稳定契约；改名视为 breaking change。
-- Provider 的 `query()` 在 Binder 线程执行，内部通过 Repository 查询 Room；不要在主线程执行。
-- 看板对 `SecurityException` 做降级：提示“请安装/更新冰箱管家并保持同一签名”，不崩溃。
+- `setNotificationUri` 指向同一 URI，为后续观察数据变化预留。
+- 看板 `IngredientProviderClient` 先 `resolveContentProvider` 判断主 App 是否安装，再 `ContentResolver.query`；Cursor 映射为 `DashboardIngredient`。
+- 看板对 `SecurityException` 提示权限不足；对 `IllegalArgumentException` 提示主 App 不可用；其他查询异常提示“读取失败”，均不崩溃。
+- 主 App 未安装时错误态显示“未检测到冰箱管家”；主 App 无食材时显示空态与“重新读取”。
 
 ### 4.3 为什么不用 sharedUserId
 

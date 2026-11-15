@@ -20,10 +20,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.fridge.dashboard.ui.model.DashboardStats
+import com.fridge.dashboard.data.model.DashboardIngredient
 import com.fridge.dashboard.ui.model.DashboardUiState
 
-/** 骨架阶段说明条，明确标注图表为示意数据。 */
+/** 页面顶部说明条，用于区分数据通道已接通与后续图表/导出能力。 */
 @Composable
 fun DashboardDemoBanner(
     text: String,
@@ -130,14 +130,14 @@ fun DashboardStateContent(
     state: DashboardUiState,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
-    content: @Composable (DashboardStats) -> Unit,
+    content: @Composable (List<DashboardIngredient>) -> Unit,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
         when (state) {
             DashboardUiState.Loading -> DashboardLoading()
-            DashboardUiState.Empty -> DashboardEmpty()
-            is DashboardUiState.Error -> DashboardError(state.message, onRetry)
-            is DashboardUiState.Success -> content(state.stats)
+            DashboardUiState.Empty -> DashboardEmpty(onRetry)
+            is DashboardUiState.Error -> DashboardError(state.title, state.message, onRetry)
+            is DashboardUiState.Success -> content(state.ingredients)
         }
     }
 }
@@ -151,7 +151,7 @@ private fun DashboardLoading() {
     ) {
         CircularProgressIndicator()
         Text(
-            text = "正在统计…",
+            text = "正在从主 App 读取食材…",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 16.dp),
@@ -160,7 +160,7 @@ private fun DashboardLoading() {
 }
 
 @Composable
-private fun DashboardEmpty() {
+private fun DashboardEmpty(onRetry: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -174,22 +174,28 @@ private fun DashboardEmpty() {
             color = MaterialTheme.colorScheme.primary,
         )
         Text(
-            text = "暂无可统计的食材",
+            text = "主 App 还没有食材",
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(top = 12.dp),
         )
         Text(
-            text = "请先在“冰箱管家”中添加食材，再回到看板刷新。",
+            text = "请先在“冰箱管家”中添加食材，再回到这里重新读取。",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp),
         )
+        Button(
+            onClick = onRetry,
+            modifier = Modifier.padding(top = 20.dp),
+        ) {
+            Text("重新读取")
+        }
     }
 }
 
 @Composable
-private fun DashboardError(message: String, onRetry: () -> Unit) {
+private fun DashboardError(title: String, message: String, onRetry: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -203,7 +209,7 @@ private fun DashboardError(message: String, onRetry: () -> Unit) {
             color = MaterialTheme.colorScheme.error,
         )
         Text(
-            text = "统计数据读取失败",
+            text = title,
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(top = 12.dp),
         )

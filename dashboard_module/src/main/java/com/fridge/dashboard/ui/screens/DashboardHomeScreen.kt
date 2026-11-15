@@ -17,20 +17,18 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.fridge.dashboard.ui.charts.CategoryPieChart
-import com.fridge.dashboard.ui.charts.ExpiringTrendChart
-import com.fridge.dashboard.ui.components.ChartCard
+import com.fridge.dashboard.data.model.DashboardIngredient
+import com.fridge.dashboard.data.provider.IngredientProviderContract
 import com.fridge.dashboard.ui.components.DashboardDemoBanner
 import com.fridge.dashboard.ui.components.DashboardStateContent
 import com.fridge.dashboard.ui.components.MetricCard
-import com.fridge.dashboard.ui.model.DashboardStats
 import com.fridge.dashboard.ui.model.DashboardUiState
 
 /**
- * 统计看板主页。
+ * 统计看板主页（数据通道版）。
  *
- * 结构：关键指标 → 分类占比饼图 → 近 7 天临期折线图 → 数据来源说明 → 导出入口。
- * 本轮全部使用静态示意数据，不连接主 App 数据库。
+ * 本轮只把主 App 的食材明细以文本形式展示，验证 ContentProvider 通路；
+ * 分类饼图、临期趋势图与统计聚合留到下一阶段。
  */
 @Composable
 fun DashboardHomeScreen(
@@ -41,52 +39,38 @@ fun DashboardHomeScreen(
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         DashboardDemoBanner(
-            text = "骨架演示 · 尚未连接主 App，以下指标与图表为静态示意数据",
+            text = "数据来自主 App 的只读 ContentProvider · 当前展示食材明细；图表与 CSV 在下一阶段接入",
         )
         DashboardStateContent(
             state = state,
             onRetry = onRetry,
             modifier = Modifier.weight(1f),
-        ) { stats ->
+        ) { ingredients ->
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item { MetricRow(stats = stats) }
-
-                item {
-                    ChartCard(
-                        title = "食材分类占比",
-                        subtitle = "按食材品种数统计，百分比为品种占比",
-                    ) {
-                        CategoryPieChart(stats = stats.categoryStats)
-                    }
-                }
-
-                item {
-                    ChartCard(
-                        title = "近 7 天临期食材",
-                        subtitle = "每天进入临期范围（剩余 ≤ 2 天）的食材数量",
-                    ) {
-                        ExpiringTrendChart(points = stats.trend)
-                    }
-                }
+                item { SummaryRow(ingredients = ingredients) }
 
                 item { DataSourceCard() }
+
+                items(ingredients, key = { it.id }) { ingredient ->
+                    IngredientCard(ingredient = ingredient)
+                }
 
                 item {
                     Button(
                         onClick = onExportClick,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("导出统计 CSV")
+                        Text("打开导出页（骨架）")
                     }
                 }
 
                 item {
                     Text(
-                        text = "导出内容仅包含统计结果，不包含食材名称等明细。",
+                        text = "本轮仅验证跨 App 数据读取；图表统计与 CSV 导出尚未实现。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -97,29 +81,62 @@ fun DashboardHomeScreen(
 }
 
 @Composable
-private fun MetricRow(stats: DashboardStats) {
+private fun SummaryRow(ingredients: List<DashboardIngredient>) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         MetricCard(
-            value = stats.ingredientKinds.toString(),
-            label = "食材品种",
+            value = ingredients.size.toString(),
+            label = "库存条目",
             accent = MaterialTheme.colorScheme.primary,
             modifier = Modifier.weight(1f),
         )
         MetricCard(
-            value = stats.expiringCount.toString(),
-            label = "即将过期",
+            value = ingredients.distinctBy { it.typeId }.size.toString(),
+            label = "食材品种",
             accent = MaterialTheme.colorScheme.secondary,
             modifier = Modifier.weight(1f),
         )
-        MetricCard(
-            value = stats.expiredCount.toString(),
-            label = "已过期",
-            accent = MaterialTheme.colorScheme.error,
-            modifier = Modifier.weight(1f),
-        )
+    }
+}
+
+@Composable
+private fun IngredientCard(ingredient: DashboardIngredient) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = ingredient.name,
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = "${ingredient.quantityLabel} ${ingredient.unit}".trim(),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            Text(
+                text = "分类：${ingredient.category} · 入库：${ingredient.storedAtLabel}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "保质期：${ingredient.shelfLifeDays} 天",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -127,6 +144,7 @@ private fun MetricRow(stats: DashboardStats) {
 private fun DataSourceCard() {
     Card(
         modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
@@ -136,15 +154,15 @@ private fun DataSourceCard() {
         ) {
             Text(text = "数据来源", style = MaterialTheme.typography.titleMedium)
             Text(
-                text = "正式实现中，看板通过主 App 暴露的只读 ContentProvider（signature 权限）" +
-                    "读取统计所需字段，不直接打开主 App 私有数据库，也不使用 sharedUserId。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = "本轮仅完成独立 APK 的页面与图表骨架。",
+                text = IngredientProviderContract.CONTENT_URI.toString(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = "通过主 App 的只读 ContentProvider + signature 权限读取；" +
+                    "不直接打开主 App 私有数据库。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

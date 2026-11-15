@@ -263,15 +263,18 @@ Room 不支持 `CHECK` 约束注解，因此数值范围不在建表 SQL 中写�
 
 ## 9. 对看板 / Provider 的影响
 
-看板需要的统计口径：
+已实现只读 Provider：`content://com.fridge.main.provider/ingredients` 返回
+`_id`、`type_id`、`name`、`category`、`stored_at`、`shelf_life_days`、`quantity`、`unit`。
 
-- 食材品种数：`COUNT(DISTINCT type_id)`。
-- 库存批次/总数量：按 `ingredients` 聚合。
-- 分类分布：`ingredient_types.category` + 库存聚合。
-- 临期/过期：按 §5 的派生表达式过滤。
-- CSV 字段：品类名称、分类、批次数量、单位、入库时间、到期时间、状态。
+看板的当前口径：
 
-Provider 只读查询应基于同一套表与表达式，避免看板自己实现一套“到期”算法。
+- 库存条目数：Provider 返回行数。
+- 食材品种数：按 `type_id` 去重计数。
+- 明细：名称、分类、入库日期、数量/单位、保质期天数。
+- 临期/过期与分类图表尚未接入；下一阶段应在看板侧复用同一套本地日历日公式，
+  或在主 App 增加聚合 URI，避免两套到期算法漂移。
+
+CSV 字段（下一阶段）：统计日期、分类、品种数、库存总数量、临期数量。
 具体 URI 契约见 `docs/ARCHITECTURE.md` §4。
 
 ## 10. 待确认

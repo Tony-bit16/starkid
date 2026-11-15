@@ -5,13 +5,13 @@
 | 模块 | APK | 包名 | 作用 |
 | --- | --- | --- | --- |
 | `refrigerator_main` | 冰箱管家 | `com.fridge.main` | 食材与菜谱管理主 App |
-| `dashboard_module` | 食材看板 | `com.fridge.dashboard` | 独立统计看板与 CSV 导出 |
+| `dashboard_module` | 食材看板 | `com.fridge.dashboard` | 独立数据看板（当前已打通数据通道） |
 
-两个模块都是 application，不共享代码与进程。看板后续通过主 App 的只读 ContentProvider 获取统计数据，不会直接打开主 App 私有数据库。
+两个模块都是 application，不共享代码与进程。看板通过主 App 的只读 ContentProvider + signature 权限获取食材数据，不会直接打开主 App 私有数据库。
 
 ## 当前阶段
 
-**第九轮：主 App 全链路联调，统一交互规范与异常处理。**
+**第十轮：创建伴生数据看板模块，打通跨 App 数据通道。**
 
 已经落地：
 
@@ -43,13 +43,14 @@
 - 页面跳转统一走 `safeNavigate`/`safePopBackStack`，异常进入根 Scaffold 的 Snackbar；数据库/网络异常继续由页面四态兜底。
 - 新增/新增菜谱首次提交后开启即时校验，字段修正后错误提示立即消失；在线搜索限制 40 字并即时提示空输入。
 - 主题补充统一 `Shapes`（6/10/14/18/24dp），卡片、输入框、按钮圆角与间距一致。
-- 看板 2 个页面仍为静态演示 UI；10 个页面的 UI 原型文档保持有效。
+- 主 App 暴露只读 `IngredientContentProvider`（authority `com.fridge.main.provider`），使用 signature 级读写权限。
+- 看板通过 `ContentResolver` 查询主 App 食材，展示库存条目/品种数、来源 URI 与食材明细；主 App 未安装/查询失败/权限不足均有中文错误页和重试。
+- 看板统计主页/导出页完成骨架与跳转；图表统计与 CSV 写文件留到下一阶段。
 
 明确尚未实现：
 
 - 按库存数量是否足够、临期食材优先级进行匹配；当前只判断食材品类是否有库存。
-- 主 App 只读 ContentProvider。
-- 看板读取真实数据、CSV 实际写入。
+- 看板分类统计图表（MPAndroidChart）与 CSV 实际写入。
 - 图片、本地菜谱搜索、分类筛选等增强交互。
 
 ## 技术栈
@@ -102,13 +103,12 @@ dashboard_module/build/outputs/apk/debug/dashboard_module-debug.apk
 
 ## 下一阶段建议顺序
 
-1. 主 App 只读 ContentProvider + signature 权限。
-2. 看板接入真实统计与 SAF CSV 导出。
-3. 匹配增强：库存数量是否足够、临期食材优先。
-4. 本地菜谱搜索、分类筛选、图片与数量快捷调整等增强。
+1. 看板接入分类统计（饼图/折线图）与 SAF CSV 导出。
+2. 匹配增强：库存数量是否足够、临期食材优先。
+3. 本地菜谱搜索、分类筛选、图片与数量快捷调整等增强。
 
 ## 本次提交
 
 ```text
-feat: 主App全流程联调，完善异常处理与交互体验
+feat: 创建伴生数据看板模块，打通跨App数据通道
 ```

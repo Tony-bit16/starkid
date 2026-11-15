@@ -1,10 +1,11 @@
 # MVVM 全链路分层设计
 
 > 第二轮定义结构与接口；第四轮实现食材模块，第五轮实现菜谱模块，第六轮实现在线菜谱搜索，
-> 第七轮实现食材匹配推荐，第八轮实现保质期提醒。食材/本地菜谱各 3 个 ViewModel、
-> 在线菜谱 2 个 ViewModel、3 个 Repository、`RecipeMatcher`、`ExpiryCalculator` 与
-> WorkManager 提醒链路均已落地；看板统计仍为后续。
-> 本文保留目标契约，实际实现以 `com.fridge.main` 源码为准。
+> 第七轮实现食材匹配推荐，第八轮实现保质期提醒，第九轮完成全链路联调，
+> 第十轮打通看板 ContentProvider 数据通道。食材/本地菜谱各 3 个 ViewModel、
+> 在线菜谱 2 个 ViewModel、看板 1 个 ViewModel、4 个 Repository、`RecipeMatcher`、
+> `ExpiryCalculator` 与 WorkManager 提醒链路均已落地；看板图表与 CSV 仍为后续。
+> 本文保留目标契约，实际实现以 `com.fridge.main` / `com.fridge.dashboard` 源码为准。
 
 ## 1. 分层与依赖方向
 
@@ -305,18 +306,22 @@ interface OnlineRecipeRepository {
 - 权限拒绝：Worker 返回 `success`，不重试；通知点击：`MainActivity` 信号 → `FridgeApp` 跳食材库。
 - Worker 不直接持有 Activity/ViewModel，也不直接查 DAO。
 
-### 5.5 看板 StatsRepository（后续）
+### 5.5 看板数据通道
 
 ```kotlin
-interface StatsRepository {
-    fun observeStats(): Flow<DashboardStats>
-    suspend fun exportCsv(uri: Uri, scope: ExportScope): Result<Unit>
+interface DashboardRepository {
+    suspend fun loadIngredients(): Result<List<DashboardIngredient>>
+}
+
+class IngredientProviderClient(private val context: Context) {
+    suspend fun loadIngredients(): Result<List<DashboardIngredient>>
 }
 ```
 
-- 数据通过 `ContentResolver.query()` 读取主 App 的只读 Provider；不打开 `fridge.db`。
-- `query` 在 `Dispatchers.IO` 执行；`SecurityException` 映射为“请安装/更新冰箱管家并保持同一签名”。
-- CSV 写入用 `contentResolver.openOutputStream(uri)`，UTF-8 + BOM。
+- `IngredientProviderClient` 先 `resolveContentProvider` 判断主 App 是否安装，再 `ContentResolver.query()`；不打开 `fridge.db`。
+- Cursor 映射为 `DashboardIngredient`（id/typeId/name/category/storedAt/shelfLifeDays/quantity/unit/labels）。
+- `query` 在 `Dispatchers.IO` 执行；`SecurityException` → 权限不足，`IllegalArgumentException` → 主 App 不可用，其他异常 → 查询失败。
+- `DefaultDashboardRepository` 只读转发；本轮没有 CSV 写入，导出页仅展示约定。
 
 ## 6. ViewModel 契约
 
@@ -586,23 +591,29 @@ class OnlineRecipeDetailViewModel(
 - 页面跳转由 `ui/common/AppErrorHandler.kt` 的 `safeNavigate`/`safePopBackStack`/`safeNavigateUp` 兜底；错误通过 `MutableSharedFlow<String>` 发到根 Scaffold 的 `SnackbarHost`。
 - 数据层异常仍由各 ViewModel 转为 `UiState.Error` 或 `errorMessage`，不依赖错误总线；错误总线只处理导航等可恢复 UI 异常。
 
-### 6.9 DashboardViewModel（看板）
+### 6.9 DashboardHomeViewModel（看板）
 
 ```kotlin
-class DashboardViewModel(
-    private val repository: StatsRepository,
+data class DashboardHomeUiState(
+    val state: DashboardUiState,
+)
+
+class DashboardHomeViewModel(
+    private val repository: DashboardRepository,
 ) : ViewModel() {
-    val uiState: StateFlow<UiState<DashboardStats>>
-    val exportState: StateFlow<ExportState>
-    fun onRefresh()
-    fun onExport(uri: Uri, scope: ExportScope)
+    val uiState: StateFlow<DashboardUiState>
+    fun retry()
+
+    companion object {
+        fun factory(context: Context): ViewModelProvider.Factory
+    }
 }
 ```
 
-- 主页、导出页共用同一个 ViewModel（Activity 级）或各自一个；推荐共用，避免重复查询。
-- `ExportState`：`Idle / Preparing / Writing / Success(path) / Error(message)`。
-- 用户取消 SAF → 回到 `Idle`，不显示错误。
-- Provider 不可用 → `Error("无法读取主 App 数据，请确认已安装冰箱管家")`。
+- 每次 `retrySignal` 先发 `Loading`，再调用 `repository.loadIngredients()`；空列表 → `Empty`，成功 → `Success(ingredients)`，失败 → `Error(title, message)`。
+- `stateIn(viewModelScope, WhileSubscribed(5_000), Loading)`；查询在 `Dispatchers.IO` 完成。
+- `Error` 文案由 `DashboardDataException.toDashboardUserMessage()` 统一提供：未安装/权限不足/查询失败。
+- 本轮没有 `ExportState` 运行时状态；导出页为静态骨架，下一阶段再引入 SAF 写文件。
 
 ## 7. 线程与生命周期
 
@@ -698,7 +709,7 @@ ViewModel 由 `FridgeNavHost` 用 `viewModel(factory = ...)` 创建，Repository
 | Network | MockWebServer：搜索/详情 JSON、404/500、超时、断网、空 meals；断言 `NetworkResult` |
 | Compose | Loading/Empty/Error/Success 快照；点击卡片路由；表单校验 |
 | Migration | `MigrationTestHelper`：v1 数据 → v2，检查品类回填、外键、索引 |
-| Dashboard | Provider 权限、Cursor 列名、CSV 转义/中文/BOM |
+| Dashboard | Provider 权限/未安装/查询失败、Cursor 列名与映射；后续补 CSV 转义/中文/BOM |
 
 ## 11. 当前实现边界
 
@@ -718,10 +729,12 @@ ViewModel 由 `FridgeNavHost` 用 `viewModel(factory = ...)` 创建，Repository
 - `ExpiryCalculator` + `ExpiryCheckWorker` + `ExpiryReminderScheduler`：每日 09:00 检查、0..3 天临期、合并通知、点击跳食材库。
 - `NotificationPermissionBanner`：Android 13+ 说明/申请/拒绝/永久拒绝“去设置”，未授权仍可查看状态。
 - `ExpiryCalculatorTest` 3 个、`ExpiryReminderSchedulerTest` 3 个；总计 11 个 JVM 单测通过。
+- 主 App `IngredientContentProvider`：signature 读写权限、只读 query、列白名单、MatrixCursor 输出。
+- 看板 `DashboardHomeViewModel` + `DashboardRepository` + `IngredientProviderClient`：ContentResolver 数据通道、四态、未安装/权限/查询错误降级。
+- 看板统计主页展示真实食材明细；导出页完成字段/文件名骨架。
 
 未完成（下一轮）：
 
 - 本地菜谱关键词搜索（当前搜索只针对在线 API）。
 - 匹配的数量/单位换算、临期优先、别名归一。
-- 看板真实统计数据与 CSV 导出。
-- Provider、CSV 写文件。
+- 看板分类饼图/折线图统计、SAF CSV 实际写文件。

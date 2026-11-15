@@ -27,7 +27,7 @@ import com.fridge.dashboard.ui.components.DashboardInfoRow
 @Composable
 fun DashboardExportScreen(modifier: Modifier = Modifier) {
     Column(modifier = modifier.fillMaxSize()) {
-        DashboardDemoBanner(text = "骨架演示 · CSV 导出尚未接入系统文件选择器（SAF）")
+        DashboardDemoBanner(text = "骨架演示 · 数据来自主 App 的只读 ContentProvider，CSV 导出尚未接入系统文件选择器（SAF）")
         Column(
             modifier = Modifier
                 .fillMaxSize()

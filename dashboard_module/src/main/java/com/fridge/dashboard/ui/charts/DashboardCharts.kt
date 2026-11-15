@@ -28,8 +28,8 @@ import com.github.mikephil.charting.formatter.PercentFormatter
 /**
  * 食材分类占比饼图（MPAndroidChart）。
  *
- * 数据目前来自静态 [com.fridge.dashboard.ui.model.DashboardSampleData]，
- * 但图表组件只接收纯数据列表，后续接入 ContentProvider 时无需改动。
+ * 图表组件只接收纯数据列表；本轮先打通数据通道，图表暂不挂载，
+ * 待下一阶段完成聚合统计后再接入。
  */
 @Composable
 fun CategoryPieChart(

@@ -70,6 +70,9 @@ Fridge/
 │     │  ├─ work/
 │     │  │  ├─ ExpiryCheckWorker.kt   # CoroutineWorker：查库存、筛选 0..3 天、发通知
 │     │  │  └─ ExpiryReminderScheduler.kt # 每日 09:00 唯一周期任务
+│     │  ├─ provider/
+│     │  │  ├─ IngredientProviderContract.kt # authority/权限/URI/列契约
+│     │  │  └─ IngredientContentProvider.kt # 只读 query，MatrixCursor 输出食材
 │     │  └─ ui/
 │     │     ├─ FridgeApp.kt           # Scaffold、顶栏、底部「食材库/菜谱库/在线搜索」导航
 │     │     ├─ common/
@@ -130,19 +133,28 @@ Fridge/
    ├─ build.gradle.kts                # com.fridge.dashboard，Compose + MPAndroidChart
    ├─ proguard-rules.pro
    └─ src/main/
-      ├─ AndroidManifest.xml          # 独立 launcher；不申请存储权限
+      ├─ AndroidManifest.xml          # 独立 launcher；READ_INGREDIENTS + <queries>
       ├─ java/com/fridge/dashboard/
       │  ├─ DashboardActivity.kt      # 唯一 Activity
+      │  ├─ data/
+      │  │  ├─ model/
+      │  │  │  └─ DashboardIngredient.kt # 只读投影 + DashboardDataException
+      │  │  ├─ provider/
+      │  │  │  ├─ IngredientProviderContract.kt # 与主 App 同步的 URI/列契约
+      │  │  │  └─ IngredientProviderClient.kt # ContentResolver 查询与 Cursor 映射
+      │  │  └─ repository/
+      │  │     └─ DashboardRepository.kt # 数据通道接口 + 默认实现
       │  └─ ui/
       │     ├─ DashboardApp.kt        # 主页/导出页切换 + BackHandler
       │     ├─ charts/
-      │     │  └─ DashboardCharts.kt  # MPAndroidChart 饼图/折线图 AndroidView 封装
+      │     │  └─ DashboardCharts.kt  # 下一阶段图表封装（当前不挂载）
       │     ├─ components/
-      │     │  └─ DashboardComponents.kt # 指标卡、图表卡、四态组件
+      │     │  └─ DashboardComponents.kt # 指标卡、四态组件
       │     ├─ model/
-      │     │  └─ DashboardModels.kt  # 统计模型、UiState、静态示意数据
+      │     │  └─ DashboardModels.kt  # UiState；CategoryStat/TrendPoint 预留
       │     ├─ screens/
       │     │  ├─ DashboardHomeScreen.kt
+      │     │  ├─ DashboardHomeViewModel.kt
       │     │  └─ DashboardExportScreen.kt
       │     └─ theme/
       │        └─ Theme.kt
@@ -180,6 +192,8 @@ Fridge/
 - `work/ExpiryReminderScheduler.kt`：唯一周期任务，每日 09:00，`KEEP` 策略；初始延迟测试在 `ExpiryReminderSchedulerTest.kt`。
 - `ui/components/NotificationPermissionBanner.kt`：首次说明、系统申请、拒绝/永久拒绝提示、`ON_RESUME` 刷新。
 - `MainActivity.kt`：`singleTop`；解析 `EXTRA_OPEN_INGREDIENTS`，通过信号让 `FridgeApp` 跳转食材库。
+- `provider/IngredientProviderContract.kt`：跨 App 的唯一契约；authority、读写权限、URI、列名集中定义，看板保留同值副本。
+- `provider/IngredientContentProvider.kt`：只读 Provider；校验调用 UID/读权限，`Dispatchers.IO` 查询 Room，`MatrixCursor` 输出；写操作全部拒绝。
 - `data/local/`：不依赖 UI；Dao 返回 `Flow` 或 `suspend`，禁止在主线程调用。
 - `data/remote/`：不依赖 UI；只由 `DefaultOnlineRecipeRepository` 调用；`NetworkResult` 统一异常，Retrofit 接口与 DTO 不做业务判断。
 - `data/local/entity/IngredientType.kt`：食材品类主数据，`normalized_name` 唯一；菜谱与库存共同引用。
@@ -200,10 +214,13 @@ Fridge/
 
 ### 看板
 
-- `DashboardModels.kt`：统计快照与四态；`DashboardSampleData` 仅用于骨架演示。
-- `DashboardCharts.kt`：只接收 `List<CategoryStat>` / `List<TrendPoint>`，不接触 Provider。
-- `DashboardHomeScreen.kt`：指标卡 → 饼图 → 折线图 → 数据来源 → 导出入口。
-- `DashboardExportScreen.kt`：导出内容/字段/文件命名说明；SAF 写入未实现。
+- `data/provider/IngredientProviderContract.kt`：与主 App 同 authority/权限/URI/列，注释要求两端同步修改。
+- `data/provider/IngredientProviderClient.kt`：`resolveContentProvider` 判主 App 是否安装，`ContentResolver.query` 读取并映射 `DashboardIngredient`；异常转 `DashboardDataException`。
+- `data/repository/DashboardRepository.kt`：只读转发，页面不直接使用 `ContentResolver`。
+- `DashboardHomeViewModel.kt`：`retrySignal` 触发加载，输出 Loading/Empty/Error/Success；`factory(context)` 组装 Client/Repository。
+- `DashboardHomeScreen.kt`：数据来源说明、库存条目/品种指标、食材明细列表、导出入口；无图表。
+- `DashboardExportScreen.kt`：导出内容/字段/文件名说明；保存按钮为下一阶段骨架。
+- `DashboardCharts.kt`：保留 MPAndroidChart 封装，下一阶段接入；当前不挂载。
 - 看板没有 Room、没有 Entity；数据边界只有 ContentResolver。
 
 ## 构建产物位置

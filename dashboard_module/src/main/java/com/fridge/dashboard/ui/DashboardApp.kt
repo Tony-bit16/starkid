@@ -15,11 +15,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.fridge.dashboard.ui.model.DashboardSampleData
-import com.fridge.dashboard.ui.model.DashboardUiState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fridge.dashboard.ui.screens.DashboardExportScreen
 import com.fridge.dashboard.ui.screens.DashboardHomeScreen
+import com.fridge.dashboard.ui.screens.DashboardHomeViewModel
 
 /** 看板内部两个页面；本轮只有主页与导出页，不需要引入 Navigation 组件。 */
 private enum class DashboardScreen {
@@ -30,12 +32,17 @@ private enum class DashboardScreen {
 /**
  * 伴生看板 App 的内容骨架。
  *
- * 与主 App 完全独立：不共享代码、不共享进程，后续仅通过 ContentProvider 数据契约通信。
+ * 与主 App 完全独立：不共享代码、不共享进程，只通过 ContentProvider 数据契约通信。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardApp() {
     var screen by rememberSaveable { mutableStateOf(DashboardScreen.HOME) }
+    val context = LocalContext.current
+    val homeViewModel: DashboardHomeViewModel = viewModel(
+        factory = DashboardHomeViewModel.factory(context),
+    )
+    val homeState by homeViewModel.state.collectAsStateWithLifecycle()
 
     // 导出页不是一级页面，系统返回键应回到看板主页。
     BackHandler(enabled = screen == DashboardScreen.EXPORT) {
@@ -75,8 +82,8 @@ fun DashboardApp() {
     ) { innerPadding ->
         when (screen) {
             DashboardScreen.HOME -> DashboardHomeScreen(
-                state = DashboardUiState.Success(DashboardSampleData.stats),
-                onRetry = {},
+                state = homeState,
+                onRetry = homeViewModel::retry,
                 onExportClick = { screen = DashboardScreen.EXPORT },
                 modifier = Modifier.padding(innerPadding),
             )

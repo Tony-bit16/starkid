@@ -10,6 +10,17 @@
     -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!--
+      伴生看板只读访问食材数据的 signature 权限。
+      只有与主 App 使用同一签名安装的 APK 才会被系统授予，避免任意应用读取库存。
+    -->
+    <permission
+        android:name="com.fridge.main.permission.READ_INGREDIENTS"
+        android:protectionLevel="signature" />
+    <permission
+        android:name="com.fridge.main.permission.WRITE_INGREDIENTS"
+        android:protectionLevel="signature" />
+
     <application
         android:name=".FridgeApplication"
         android:allowBackup="true"
@@ -28,6 +39,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 只读数据通道：看板通过 ContentResolver 查询，不能直接打开 Room 文件。 -->
+        <provider
+            android:name=".provider.IngredientContentProvider"
+            android:authorities="com.fridge.main.provider"
+            android:exported="true"
+            android:readPermission="com.fridge.main.permission.READ_INGREDIENTS"
+            android:writePermission="com.fridge.main.permission.WRITE_INGREDIENTS" />
     </application>
 
 </manifest>
