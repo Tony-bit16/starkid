@@ -10,7 +10,10 @@ import com.fridge.dashboard.data.model.toDashboardUserMessage
 import com.fridge.dashboard.data.provider.IngredientProviderClient
 import com.fridge.dashboard.data.repository.DashboardRepository
 import com.fridge.dashboard.data.repository.DefaultDashboardRepository
+import com.fridge.dashboard.domain.stats.DashboardStatsCalculator
+import com.fridge.dashboard.ui.model.DashboardHomeContent
 import com.fridge.dashboard.ui.model.DashboardUiState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -19,6 +22,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
 
 /**
  * 看板主页 ViewModel。
@@ -44,7 +48,16 @@ class DashboardHomeViewModel(
                             if (ingredients.isEmpty()) {
                                 DashboardUiState.Empty
                             } else {
-                                DashboardUiState.Success(ingredients)
+                                // 聚合计算放在 Default 线程，避免页面首次展示时卡顿。
+                                val stats = withContext(Dispatchers.Default) {
+                                    DashboardStatsCalculator.calculate(ingredients)
+                                }
+                                DashboardUiState.Success(
+                                    DashboardHomeContent(
+                                        stats = stats,
+                                        ingredients = ingredients,
+                                    ),
+                                )
                             }
                         },
                         onFailure = { error ->

@@ -39,6 +39,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // minSdk 24 使用 java.time 计算保质期，开启 desugaring。
+        isCoreLibraryDesugaringEnabled = true
     }
 
     packaging {
@@ -68,6 +70,9 @@ dependencies {
 
     // 看板图表：按约束固定使用 MPAndroidChart（JitPack 仓库已在 settings.gradle.kts 限定）。
     implementation(libs.mpandroidchart)
+
+    // 与主 App 一致：API 24 上支持 java.time。
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.compose.ui.tooling)

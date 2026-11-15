@@ -20,7 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.fridge.dashboard.data.model.DashboardIngredient
+import com.fridge.dashboard.ui.model.DashboardHomeContent
 import com.fridge.dashboard.ui.model.DashboardUiState
 
 /** 页面顶部说明条，用于区分数据通道已接通与后续图表/导出能力。 */
@@ -130,14 +130,14 @@ fun DashboardStateContent(
     state: DashboardUiState,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
-    content: @Composable (List<DashboardIngredient>) -> Unit,
+    content: @Composable (DashboardHomeContent) -> Unit,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
         when (state) {
             DashboardUiState.Loading -> DashboardLoading()
             DashboardUiState.Empty -> DashboardEmpty(onRetry)
             is DashboardUiState.Error -> DashboardError(state.title, state.message, onRetry)
-            is DashboardUiState.Success -> content(state.ingredients)
+            is DashboardUiState.Success -> content(state.content)
         }
     }
 }
@@ -151,7 +151,7 @@ private fun DashboardLoading() {
     ) {
         CircularProgressIndicator()
         Text(
-            text = "正在从主 App 读取食材…",
+            text = "正在读取食材并计算统计…",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 16.dp),

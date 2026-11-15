@@ -6,4 +6,8 @@
     <color name="chart_red">#BA1A1A</color>
     <color name="chart_blue">#3F6F8F</color>
     <color name="chart_gray">#8A9388</color>
+    <color name="chart_teal">#2A8C82</color>
+    <color name="chart_purple">#7A5C9E</color>
+    <color name="chart_brown">#9A6B4F</color>
+    <color name="chart_yellow">#C9A227</color>
 </resources>

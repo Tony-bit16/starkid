@@ -25,7 +25,7 @@
 
 ## 2. 主 App 分层
 
-目标结构（主 App 食材/菜谱模块与看板数据通道均已落地）：
+目标结构（主 App 食材/菜谱模块、看板数据通道与统计饼图均已落地）：
 
 ```text
 UI（Compose Screen）
@@ -58,7 +58,7 @@ ViewModel
 - ViewModel：食材 3 个、本地菜谱 3 个、在线搜索/详情 2 个，通过 `StateFlow` 暴露四态或表单/操作状态；菜谱列表/详情额外观察库存 Flow 并调用匹配算法。
 - 菜谱新增/编辑共用 `RecipeForm`，食材清单按行动态增删；菜谱详情通过 Room Flow 自动刷新。
 - 在线菜谱详情保存时复用 `RecipeRepository.saveRecipe`，本地列表由同一个 Room Flow 自动刷新。
-- 看板已接真实数据通道：`DashboardHomeViewModel` → `DashboardRepository` → `IngredientProviderClient` → `ContentResolver`；主页展示食材明细，图表与 CSV 尚未接入。
+- 看板已接真实数据通道：`DashboardHomeViewModel` → `DashboardRepository` → `IngredientProviderClient` → `ContentResolver`；读取后在 `domain/stats/DashboardStatsCalculator` 聚合，主页用三张指标卡 + MPAndroidChart 饼图展示，CSV 尚未接入。
 - `FridgeApplication` 懒加载数据库与 Repository，并暴露 `ingredientRepository`、`recipeRepository`、`onlineRecipeRepository` 单例；`onCreate` 创建 `expiry_reminder` 渠道并调度每日 09:00 检查。
 - `notification/` 与 `work/` 不依赖 ViewModel：`ExpiryCheckWorker` 通过 `IngredientRepository.getAllIngredients()` 读取库存，按 `ExpiryCalculator` 筛选后调用 `ExpiryNotifications`。
 
@@ -69,7 +69,7 @@ ViewModel
 - Repository 是唯一允许拼装多个 DAO 结果、做业务校验的层。
 - UI 不直接调用 Dao，不直接使用 `Cursor`，不持有 `Context` 做数据库操作。
 - 主线程不做 IO：Room 的 `suspend` / `Flow` 查询由 Room 的执行器调度；网络统一经 `safeApiCall` 切到 `Dispatchers.IO`；文件、CSV、Provider 查询也显式使用 `Dispatchers.IO`。
-- 匹配是 CPU 计算，菜谱列表与详情在 `Dispatchers.Default` 执行 `RecipeMatcher`；不阻塞主线程，也不放进 Repository。
+- 匹配与看板统计是 CPU 计算，菜谱列表/详情在 `Dispatchers.Default` 执行 `RecipeMatcher`，看板在 `Dispatchers.Default` 执行 `DashboardStatsCalculator`；不阻塞主线程，也不放进 Repository。
 - 匹配只依赖 `type_id` 与库存数量 > 0，不修改任何数据；推荐列表与详情是同一算法的两种投影，避免两套口径。
 - 网络层不向上抛 Retrofit/OkHttp 异常：`BaseRemoteDataSource` 统一转换为 `NetworkResult.Failure(message)`，ViewModel 只消费中文文案。
 - 网络失败不改变本地数据：在线搜索/详情失败只影响当前页，本地菜谱库仍可读取 Room。
@@ -146,6 +146,26 @@ ExpiryCheckWorker.doWork（Dispatchers.IO）
 - 进入食材列表先展示通知说明，用户同意后才申请系统权限；拒绝/永久拒绝只影响通知。
 - `NotificationPermissionBanner` 在 `ON_RESUME` 重新检查，设置页返回后自动消失。
 - Worker 的查询与通知构造全部在后台线程；通知内容只包含名称与剩余天数，不包含数量/备注等敏感信息。
+
+### 2.6 看板统计与饼图数据流
+
+```text
+DashboardHomeScreen
+        │ 收集 DashboardUiState（Loading / Empty / Error / Success）
+        ▼
+DashboardHomeViewModel
+        ├─ DashboardRepository.loadIngredients()
+        │       └─ IngredientProviderClient → ContentResolver（Dispatchers.IO）
+        └─ DashboardStatsCalculator.calculate()（Dispatchers.Default）
+                 ├─ 总条目数、0..3 天临期、负数已过期
+                 └─ 分类条目数（按数量降序，空分类 → 未分类）
+                         └─ DashboardHomeContent → 指标卡 + CategoryPieChart
+```
+
+- 读取与统计分属 IO / Default 两条后台链路，主线程只消费结果。
+- 分类占比按库存条目数统计；不同单位（kg、L、个）的 quantity 不相加，避免产生无意义的总量。
+- 饼图使用 MPAndroidChart `PieChart`，每个 `PieEntry` 的 label 为“分类 + 条目数”，中心文字显示总条数；图例关闭，避免与扇区标签重复。
+- 统计结果与原始明细一起进入 Success，避免页面或重组时重复计算。
 
 ## 3. 数据模型与关系
 
@@ -356,7 +376,7 @@ sealed interface UiState<out T> {
 
 - DAO：内存 Room 数据库，覆盖插入、到期区间查询、关联查询、级联删除。
 - Repository：用 fake DAO 测试校验、到期天数、品类复用。
-- Domain：`RecipeMatcherTest` 覆盖三级分类、稳定排序、已有/缺少名称、空库存、空菜谱；`ExpiryCalculatorTest` 覆盖到期日、0..3 天边界、已过期。
+- Domain：`RecipeMatcherTest` 覆盖三级分类、稳定排序、已有/缺少名称、空库存、空菜谱；`ExpiryCalculatorTest` 覆盖到期日、0..3 天边界、已过期；`DashboardStatsCalculatorTest` 覆盖总数/临期/过期/分类、空分类回退与跨月边界。
 - Work：`ExpiryReminderSchedulerTest` 覆盖 09:00 前/后/准点初始延迟；Worker 通知合并与权限降级后续可用 `WorkManagerTestInitHelper` 补。
 - ViewModel：`kotlinx-coroutines-test` + Turbine 验证四态顺序。
 - Compose：对 Loading / Empty / Error / Success 做 UI 测试；列表点击触发正确路由。
@@ -377,6 +397,8 @@ sealed interface UiState<out T> {
 - 通知只按“品类有库存 + 0..3 天”筛选；同一品类多条批次会各自触发一次，合并文案可能出现重复名称，后续可按品类聚合。
 - Android 13 以下无运行时通知权限，但用户仍可在系统设置关闭通知；`canPost()` 已覆盖该场景。
 - 看板与主 App 的 release 签名必须统一，否则 signature 权限会拒绝。
+- 看板统计按“库存条目数”而非 quantity 求和：不同单位不能直接相加，因此页面明确标注口径；分类很多时饼图标签可能拥挤，后续可合并“其他”或增加交互图例。
+- 看板独立实现了一份到期日公式；主 App 修改保质期口径时必须同步 `DashboardStatsCalculator`，否则两端统计会不一致。
 - 到期日已改为按本地日历日计算，跨时区/夏令时切换时以设备当前时区为准；若用户频繁改时区，剩余天数可能跳变。
 - 下拉刷新会重新订阅 Room Flow 或重发网络请求；同一页面快速连续刷新时，旧请求可能仍在进行，在线搜索已用 `requestId` 丢弃过期结果。
 - `AppErrorHandler` 只捕获导航等可恢复异常，不替换 Android 默认崩溃处理；数据层异常仍需各自映射，避免 Snackbar 文案与页面错误态重复。

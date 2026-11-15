@@ -23,13 +23,12 @@ import com.github.mikephil.charting.data.PieData
 import com.github.mikephil.charting.data.PieDataSet
 import com.github.mikephil.charting.data.PieEntry
 import com.github.mikephil.charting.formatter.IndexAxisValueFormatter
-import com.github.mikephil.charting.formatter.PercentFormatter
 
 /**
  * 食材分类占比饼图（MPAndroidChart）。
  *
- * 图表组件只接收纯数据列表；本轮先打通数据通道，图表暂不挂载，
- * 待下一阶段完成聚合统计后再接入。
+ * 每个扇区直接标注“分类名称 + 库存条目数”，中心显示总条目数。
+ * 分类统计口径与主页指标卡一致，均为库存条目数，而不是不同单位的数量之和。
  */
 @Composable
 fun CategoryPieChart(
@@ -52,20 +51,22 @@ fun CategoryPieChart(
 
 private fun bindPieChart(chart: PieChart, stats: List<CategoryStat>, textColor: Int) {
     chart.description.isEnabled = false
-    chart.setUsePercentValues(true)
-    chart.setDrawEntryLabels(false)
+    chart.setUsePercentValues(false)
+    chart.setDrawEntryLabels(true)
+    chart.setEntryLabelColor(textColor)
+    chart.setEntryLabelTextSize(10f)
     chart.setHoleColor(Color.TRANSPARENT)
-    chart.setHoleRadius(58f)
-    chart.setTransparentCircleRadius(62f)
-    chart.centerText = "分类\n占比"
-    chart.setCenterTextSize(14f)
+    chart.setHoleRadius(52f)
+    chart.setTransparentCircleRadius(58f)
+    chart.centerText = "总计\n${stats.sumOf { it.count }} 条"
+    chart.setCenterTextSize(15f)
     chart.setCenterTextColor(textColor)
-    chart.legend.isWordWrapEnabled = true
-    chart.legend.textColor = textColor
-    chart.legend.textSize = 11f
+    // 扇区文字已带分类名与数量，关闭图例避免重复信息挤占空间。
+    chart.legend.isEnabled = false
     chart.setTouchEnabled(false)
     chart.setRotationEnabled(false)
     chart.isHighlightPerTapEnabled = false
+    chart.setExtraOffsets(6f, 6f, 6f, 6f)
     chart.setNoDataText("暂无分类数据")
 
     val colors = intArrayOf(
@@ -74,20 +75,20 @@ private fun bindPieChart(chart: PieChart, stats: List<CategoryStat>, textColor: 
         ContextCompat.getColor(chart.context, R.color.chart_blue),
         ContextCompat.getColor(chart.context, R.color.chart_red),
         ContextCompat.getColor(chart.context, R.color.chart_gray),
+        ContextCompat.getColor(chart.context, R.color.chart_teal),
+        ContextCompat.getColor(chart.context, R.color.chart_purple),
+        ContextCompat.getColor(chart.context, R.color.chart_brown),
+        ContextCompat.getColor(chart.context, R.color.chart_yellow),
     )
-    val entries = stats.map { PieEntry(it.count.toFloat(), it.name) }
+    val entries = stats.map { PieEntry(it.count.toFloat(), "${it.name} ${it.count}") }
     val dataSet = PieDataSet(entries, "").apply {
         setColors(*colors)
         sliceSpace = 2f
-        setDrawValues(true)
+        selectionShift = 5f
+        // 扇区标签已经包含数量，不再在扇区内部重复绘制数值。
+        setDrawValues(false)
     }
-    val data = PieData(dataSet).apply {
-        setValueTextSize(12f)
-        setValueTextColor(Color.WHITE)
-        // 显示百分比而不是原始数量，避免“5 个分类”被误读成 5 件食材。
-        setValueFormatter(PercentFormatter(chart))
-    }
-    chart.data = data
+    chart.data = PieData(dataSet)
     chart.invalidate()
 }
 

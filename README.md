@@ -5,13 +5,13 @@
 | 模块 | APK | 包名 | 作用 |
 | --- | --- | --- | --- |
 | `refrigerator_main` | 冰箱管家 | `com.fridge.main` | 食材与菜谱管理主 App |
-| `dashboard_module` | 食材看板 | `com.fridge.dashboard` | 独立数据看板（当前已打通数据通道） |
+| `dashboard_module` | 食材看板 | `com.fridge.dashboard` | 独立数据看板（数据通道 + 分类饼图） |
 
 两个模块都是 application，不共享代码与进程。看板通过主 App 的只读 ContentProvider + signature 权限获取食材数据，不会直接打开主 App 私有数据库。
 
 ## 当前阶段
 
-**第十轮：创建伴生数据看板模块，打通跨 App 数据通道。**
+**第十一轮：伴生看板库存统计与分类饼图可视化。**
 
 已经落地：
 
@@ -45,12 +45,14 @@
 - 主题补充统一 `Shapes`（6/10/14/18/24dp），卡片、输入框、按钮圆角与间距一致。
 - 主 App 暴露只读 `IngredientContentProvider`（authority `com.fridge.main.provider`），使用 signature 级读写权限。
 - 看板通过 `ContentResolver` 查询主 App 食材，展示库存条目/品种数、来源 URI 与食材明细；主 App 未安装/查询失败/权限不足均有中文错误页和重试。
-- 看板统计主页/导出页完成骨架与跳转；图表统计与 CSV 写文件留到下一阶段。
+- 看板统计口径与主 App 一致：按本地日历日计算剩余天数，0..3 天为临期，负数已过期；分类占比按库存条目数统计，避免不同单位数量直接相加。
+- 看板主页三张指标卡（总食材数 / 临期 / 已过期）+ MPAndroidChart 饼图；扇区标注分类名称与条目数，中心显示总条目数。
+- 统计计算在 `Dispatchers.Default` 执行；加载、空、错误、成功四态完整，主 App 无食材或未安装时仍可独立展示对应状态。
 
 明确尚未实现：
 
 - 按库存数量是否足够、临期食材优先级进行匹配；当前只判断食材品类是否有库存。
-- 看板分类统计图表（MPAndroidChart）与 CSV 实际写入。
+- 看板 CSV 实际写入与近 7 天趋势折线图。
 - 图片、本地菜谱搜索、分类筛选等增强交互。
 
 ## 技术栈
@@ -103,12 +105,12 @@ dashboard_module/build/outputs/apk/debug/dashboard_module-debug.apk
 
 ## 下一阶段建议顺序
 
-1. 看板接入分类统计（饼图/折线图）与 SAF CSV 导出。
+1. 看板接入 SAF CSV 导出与近 7 天趋势折线图。
 2. 匹配增强：库存数量是否足够、临期食材优先。
 3. 本地菜谱搜索、分类筛选、图片与数量快捷调整等增强。
 
 ## 本次提交
 
 ```text
-feat: 创建伴生数据看板模块，打通跨App数据通道
+feat: 伴生看板：库存分类统计 + 饼图可视化
 ```

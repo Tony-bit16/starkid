@@ -2,9 +2,10 @@
 
 > 第二轮定义结构与接口；第四轮实现食材模块，第五轮实现菜谱模块，第六轮实现在线菜谱搜索，
 > 第七轮实现食材匹配推荐，第八轮实现保质期提醒，第九轮完成全链路联调，
-> 第十轮打通看板 ContentProvider 数据通道。食材/本地菜谱各 3 个 ViewModel、
-> 在线菜谱 2 个 ViewModel、看板 1 个 ViewModel、4 个 Repository、`RecipeMatcher`、
-> `ExpiryCalculator` 与 WorkManager 提醒链路均已落地；看板图表与 CSV 仍为后续。
+> 第十轮打通看板 ContentProvider 数据通道，第十一轮完成看板库存统计与分类饼图。食材/本地菜谱各 3 个 ViewModel、
+> 在线菜谱 2 个 ViewModel、看板 1 个 ViewModel、5 个 Repository、`RecipeMatcher`、
+> `ExpiryCalculator`、`DashboardStatsCalculator` 与 WorkManager 提醒链路均已落地；
+> 看板折线图与 CSV 仍为后续。
 > 本文保留目标契约，实际实现以 `com.fridge.main` / `com.fridge.dashboard` 源码为准。
 
 ## 1. 分层与依赖方向
@@ -57,8 +58,10 @@ com.fridge.main/
 ├─ domain/
 │  ├─ matching/
 │  │  └─ RecipeMatcher.kt          # 纯 Kotlin 匹配算法（无 Android/Room 依赖）
-│  └─ expiry/
-│     └─ ExpiryCalculator.kt       # 到期日/剩余天数/0..3 天临期
+│  ├─ expiry/
+│  │  └─ ExpiryCalculator.kt       # 到期日/剩余天数/0..3 天临期
+│  └─ stats/
+│     └─ DashboardStatsCalculator.kt # 看板总数/临期/过期/分类统计
 ├─ data/
 │  ├─ local/
 │  │  ├─ FridgeDatabase.kt
@@ -109,12 +112,18 @@ com.fridge.main/
 
 ```text
 com.fridge.dashboard/
+├─ domain/stats/
+│  └─ DashboardStatsCalculator.kt     # 库存统计（纯 Kotlin）
 ├─ data/
-│  └─ StatsRepository.kt              # 后续：ContentResolver + CSV
+│  ├─ model/DashboardIngredient.kt
+│  ├─ provider/IngredientProviderClient.kt
+│  └─ repository/DashboardRepository.kt
 └─ ui/
    ├─ model/DashboardModels.kt
-   ├─ viewmodel/DashboardViewModel.kt # 后续
-   └─ screens/...
+   ├─ screens/DashboardHomeViewModel.kt
+   ├─ screens/DashboardHomeScreen.kt
+   ├─ charts/DashboardCharts.kt
+   └─ screens/DashboardExportScreen.kt
 ```
 
 ## 3. 各层职责
@@ -321,7 +330,9 @@ class IngredientProviderClient(private val context: Context) {
 - `IngredientProviderClient` 先 `resolveContentProvider` 判断主 App 是否安装，再 `ContentResolver.query()`；不打开 `fridge.db`。
 - Cursor 映射为 `DashboardIngredient`（id/typeId/name/category/storedAt/shelfLifeDays/quantity/unit/labels）。
 - `query` 在 `Dispatchers.IO` 执行；`SecurityException` → 权限不足，`IllegalArgumentException` → 主 App 不可用，其他异常 → 查询失败。
-- `DefaultDashboardRepository` 只读转发；本轮没有 CSV 写入，导出页仅展示约定。
+- `DefaultDashboardRepository` 只读转发；统计由 `DashboardStatsCalculator` 在 Default 线程完成。
+- 统计口径按库存条目数：`totalCount=ingredients.size`，`expiringCount` 为 0..3 天，`expiredCount` 为负数，分类按 count 降序。
+- 本轮没有 CSV 写入，导出页仅展示约定。
 
 ## 6. ViewModel 契约
 
@@ -610,8 +621,8 @@ class DashboardHomeViewModel(
 }
 ```
 
-- 每次 `retrySignal` 先发 `Loading`，再调用 `repository.loadIngredients()`；空列表 → `Empty`，成功 → `Success(ingredients)`，失败 → `Error(title, message)`。
-- `stateIn(viewModelScope, WhileSubscribed(5_000), Loading)`；查询在 `Dispatchers.IO` 完成。
+- 每次 `retrySignal` 先发 `Loading`，再调用 `repository.loadIngredients()`；空列表 → `Empty`，成功后在 `Dispatchers.Default` 调用 `DashboardStatsCalculator.calculate()`，发射 `Success(DashboardHomeContent(stats, ingredients))`，失败 → `Error(title, message)`。
+- `stateIn(viewModelScope, WhileSubscribed(5_000), Loading)`；查询在 `Dispatchers.IO`，统计在 `Dispatchers.Default`。
 - `Error` 文案由 `DashboardDataException.toDashboardUserMessage()` 统一提供：未安装/权限不足/查询失败。
 - 本轮没有 `ExportState` 运行时状态；导出页为静态骨架，下一阶段再引入 SAF 写文件。
 
@@ -625,6 +636,7 @@ class DashboardHomeViewModel(
 | 多 DAO 事务 | `RoomDatabase.withTransaction { ... }` |
 | CSV 写文件 | `Dispatchers.IO` |
 | ContentResolver 查询 | `Dispatchers.IO` |
+| 看板统计计算 | `Dispatchers.Default`（`DashboardStatsCalculator`） |
 | 到期检查 Worker | `CoroutineWorker` + `Dispatchers.IO`；通知构造也在 Worker 内 |
 | 日期/剩余天数计算 | 纯函数，可在主线程；数据量大时移到 Default |
 
@@ -731,10 +743,11 @@ ViewModel 由 `FridgeNavHost` 用 `viewModel(factory = ...)` 创建，Repository
 - `ExpiryCalculatorTest` 3 个、`ExpiryReminderSchedulerTest` 3 个；总计 11 个 JVM 单测通过。
 - 主 App `IngredientContentProvider`：signature 读写权限、只读 query、列白名单、MatrixCursor 输出。
 - 看板 `DashboardHomeViewModel` + `DashboardRepository` + `IngredientProviderClient`：ContentResolver 数据通道、四态、未安装/权限/查询错误降级。
-- 看板统计主页展示真实食材明细；导出页完成字段/文件名骨架。
+- `DashboardStatsCalculator`：总条目、0..3 天临期、已过期、分类条目数；`DashboardStatsCalculatorTest` 3 个 JVM 用例通过。
+- 看板三张指标卡 + MPAndroidChart 分类饼图；导出页完成字段/文件名骨架。
 
 未完成（下一轮）：
 
 - 本地菜谱关键词搜索（当前搜索只针对在线 API）。
 - 匹配的数量/单位换算、临期优先、别名归一。
-- 看板分类饼图/折线图统计、SAF CSV 实际写文件。
+- 看板近 7 天趋势折线图、SAF CSV 实际写文件。
