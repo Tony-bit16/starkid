@@ -5,18 +5,22 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -41,12 +45,14 @@ import com.fridge.dashboard.ui.model.DashboardUiState
 fun DashboardHomeScreen(
     state: DashboardUiState,
     onRetry: () -> Unit,
+    isExporting: Boolean,
     onExportClick: () -> Unit,
+    onOpenExportPage: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         DashboardDemoBanner(
-            text = "数据来自主 App 的只读 ContentProvider · 分类占比按库存条目统计；CSV 仍为骨架",
+            text = "数据来自主 App 的只读 ContentProvider · 分类占比按库存条目统计；CSV 支持导出",
         )
         DashboardStateContent(
             state = state,
@@ -55,7 +61,9 @@ fun DashboardHomeScreen(
         ) { content ->
             DashboardContent(
                 content = content,
+                isExporting = isExporting,
                 onExportClick = onExportClick,
+                onOpenExportPage = onOpenExportPage,
             )
         }
     }
@@ -64,7 +72,9 @@ fun DashboardHomeScreen(
 @Composable
 private fun DashboardContent(
     content: DashboardHomeContent,
+    isExporting: Boolean,
     onExportClick: () -> Unit,
+    onOpenExportPage: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -84,15 +94,35 @@ private fun DashboardContent(
         item {
             Button(
                 onClick = onExportClick,
+                enabled = !isExporting,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("打开导出页（骨架）")
+                if (isExporting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text("正在导出…")
+                } else {
+                    Text("导出数据（CSV）")
+                }
+            }
+        }
+
+        item {
+            TextButton(
+                onClick = onOpenExportPage,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("查看导出字段说明")
             }
         }
 
         item {
             Text(
-                text = "本轮完成库存统计与分类饼图；CSV 导出仍在下一阶段接入。",
+                text = "CSV 会保存到公共下载目录（Downloads/Fridge）；趋势折线图在后续阶段接入。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -19,15 +18,17 @@ import com.fridge.dashboard.ui.components.DashboardDemoBanner
 import com.fridge.dashboard.ui.components.DashboardInfoRow
 
 /**
- * 导出页（骨架）。
+ * 导出说明页。
  *
- * 明确导出内容、CSV 字段与文件命名；具体 SAF 写入在导出模块实现。
- * 本轮按钮禁用，避免用户误以为已经可以生成文件。
+ * 实际导出入口在主页（顶栏“导出”或底部“导出数据（CSV）”按钮）；
+ * 本页只说明导出内容、字段、编码和保存位置，避免重复放一个容易误解的禁用按钮。
  */
 @Composable
 fun DashboardExportScreen(modifier: Modifier = Modifier) {
     Column(modifier = modifier.fillMaxSize()) {
-        DashboardDemoBanner(text = "骨架演示 · 数据来自主 App 的只读 ContentProvider，CSV 导出尚未接入系统文件选择器（SAF）")
+        DashboardDemoBanner(
+            text = "CSV 已支持导出 · 返回主页点击“导出数据（CSV）”；文件保存到公共下载目录",
+        )
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -37,39 +38,34 @@ fun DashboardExportScreen(modifier: Modifier = Modifier) {
         ) {
             ExportCard(title = "导出内容") {
                 ExportItem(
-                    title = "分类统计",
-                    description = "每个分类的食材品种数、库存总数量、临期数量。",
+                    title = "全量食材库存",
+                    description = "每次导出都会重新读取主 App 的最新食材，不导出看板缓存。",
                 )
                 ExportItem(
-                    title = "临期清单",
-                    description = "按剩余天数升序排列的临期/已过期食材汇总。",
+                    title = "过期状态",
+                    description = "按本地日历日计算：0..3 天为临期，负数天为已过期。",
                 )
             }
 
             ExportCard(title = "CSV 字段") {
-                DashboardInfoRow(label = "统计日期", value = "yyyy-MM-dd")
+                DashboardInfoRow(label = "食材名称", value = "name")
                 DashboardInfoRow(label = "分类", value = "category")
-                DashboardInfoRow(label = "食材品种数", value = "kind_count")
-                DashboardInfoRow(label = "库存总数量", value = "total_quantity")
-                DashboardInfoRow(label = "临期数量", value = "expiring_count")
+                DashboardInfoRow(label = "数量", value = "quantity")
+                DashboardInfoRow(label = "单位", value = "unit")
+                DashboardInfoRow(label = "入库时间", value = "stored_at")
+                DashboardInfoRow(label = "剩余保质期", value = "days_left（天）")
+                DashboardInfoRow(label = "过期状态", value = "status")
             }
 
             ExportCard(title = "文件") {
-                DashboardInfoRow(label = "格式", value = "CSV（UTF-8）")
-                DashboardInfoRow(label = "文件名", value = "fridge_stats_yyyyMMdd.csv")
-            }
-
-            Button(
-                onClick = {},
-                enabled = false,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("选择保存位置（下一阶段接入）")
+                DashboardInfoRow(label = "格式", value = "CSV（UTF-8 BOM / CRLF）")
+                DashboardInfoRow(label = "文件名", value = "fridge_inventory_yyyyMMdd_HHmmss.csv")
+                DashboardInfoRow(label = "保存位置", value = "Downloads/Fridge")
             }
 
             Text(
-                text = "实现约定：使用 ActivityResultContracts.CreateDocument(\"text/csv\") 由系统选择保存位置，" +
-                    "不申请存储权限；用户取消时不视为错误，也不弹崩溃提示。",
+                text = "权限说明：Android 10+ 通过 MediaStore 写入公共下载目录，不需要存储权限；" +
+                    "Android 7-9 会先申请外部存储写权限。拒绝权限只影响导出，仍可正常查看统计。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

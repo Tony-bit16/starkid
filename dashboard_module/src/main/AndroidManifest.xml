@@ -4,13 +4,26 @@
     <!--
       伴生看板是独立 APK，不直接打开主 App 的私有 Room 文件，也不使用 sharedUserId。
       通过主 App 的只读 ContentProvider + signature 权限读取食材数据。
-      本模块不申请存储权限：CSV 导出使用系统文件选择器（SAF）。
+      Android 10+ 通过 MediaStore 写公共下载目录，无需存储权限；
+      Android 7-9 才需要旧版外部存储权限，因此用 maxSdkVersion 限定。
     -->
     <uses-permission android:name="com.fridge.main.permission.READ_INGREDIENTS" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <!-- Android 11+ 包可见性：允许解析主 App 的 Provider。 -->
     <queries>
         <provider android:authorities="com.fridge.main.provider" />
+
+        <!-- 用于在 Android 11+ 检查是否有应用能打开导出的 CSV。 -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="text/csv" />
+        </intent>
     </queries>
 
     <application
@@ -29,6 +42,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 只读共享缓存目录中的 CSV，供“打开文件”授权给外部查看器。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

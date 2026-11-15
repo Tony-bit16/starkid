@@ -11,7 +11,7 @@
 
 ## 当前阶段
 
-**第十一轮：伴生看板库存统计与分类饼图可视化。**
+**第十二轮：伴生看板 CSV 导出与 FileProvider 下载。**
 
 已经落地：
 
@@ -48,11 +48,15 @@
 - 看板统计口径与主 App 一致：按本地日历日计算剩余天数，0..3 天为临期，负数已过期；分类占比按库存条目数统计，避免不同单位数量直接相加。
 - 看板主页三张指标卡（总食材数 / 临期 / 已过期）+ MPAndroidChart 饼图；扇区标注分类名称与条目数，中心显示总条目数。
 - 统计计算在 `Dispatchers.Default` 执行；加载、空、错误、成功四态完整，主 App 无食材或未安装时仍可独立展示对应状态。
+- 看板主页“导出”/“导出数据（CSV）”导出全量食材，字段为名称、分类、数量、单位、入库时间、剩余保质期与过期状态。
+- Android 10+ 通过 MediaStore 写入公共 `Downloads/Fridge`，无需存储权限；Android 7-9 才申请旧版 WRITE 权限，拒绝/永久拒绝均不阻断统计浏览。
+- 导出用 UTF-8 BOM + CRLF 兼容 Excel；文件经 FileProvider 暴露缓存副本，可直接打开；加载、成功、无数据、无查看器、空间不足均有明确提示。
+- `DashboardCsvFormatter` 覆盖字段转义、状态边界与数量格式，配套 5 个 JVM 单测。
 
 明确尚未实现：
 
 - 按库存数量是否足够、临期食材优先级进行匹配；当前只判断食材品类是否有库存。
-- 看板 CSV 实际写入与近 7 天趋势折线图。
+- 看板近 7 天趋势折线图与按日期范围导出。
 - 图片、本地菜谱搜索、分类筛选等增强交互。
 
 ## 技术栈
@@ -63,6 +67,7 @@
 - Room `2.8.5` + KSP
 - Retrofit `2.11.0` + OkHttp `4.12.0` + Gson `2.11.0`（在线菜谱）
 - WorkManager `2.10.1`（保质期定时检查）
+- MediaStore Downloads + FileProvider（看板 CSV 导出）
 - Kotlin Coroutines `1.10.2`
 - MPAndroidChart `v3.1.0`（JitPack）
 - minSdk 24 / compileSdk 36（minor 1）/ Java 17
@@ -105,12 +110,12 @@ dashboard_module/build/outputs/apk/debug/dashboard_module-debug.apk
 
 ## 下一阶段建议顺序
 
-1. 看板接入 SAF CSV 导出与近 7 天趋势折线图。
+1. 看板近 7 天趋势折线图与按日期范围导出。
 2. 匹配增强：库存数量是否足够、临期食材优先。
 3. 本地菜谱搜索、分类筛选、图片与数量快捷调整等增强。
 
 ## 本次提交
 
 ```text
-feat: 伴生看板：库存分类统计 + 饼图可视化
+feat: 伴生看板实现统计数据CSV导出功能
 ```

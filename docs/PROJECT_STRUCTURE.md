@@ -138,9 +138,13 @@ Fridge/
       │  ├─ java/com/fridge/dashboard/
       │  │  ├─ DashboardActivity.kt   # 唯一 Activity
       │  │  ├─ domain/
+      │  │  │  ├─ export/
+      │  │  │  │  └─ DashboardCsvFormatter.kt # BOM/CRLF/转义/状态/数量格式
       │  │  │  └─ stats/
       │  │  │     └─ DashboardStatsCalculator.kt # 总数/临期/过期/分类统计
       │  │  ├─ data/
+      │  │  │  ├─ export/
+      │  │  │  │  └─ DashboardCsvExporter.kt # cache + MediaStore/旧版文件 + FileProvider
       │  │  │  ├─ model/
       │  │  │  │  └─ DashboardIngredient.kt # 只读投影 + DashboardDataException
       │  │  │  ├─ provider/
@@ -149,7 +153,7 @@ Fridge/
       │  │  │  └─ repository/
       │  │  │     └─ DashboardRepository.kt # 数据通道接口 + 默认实现
       │  │  └─ ui/
-      │  │     ├─ DashboardApp.kt     # 主页/导出页切换 + BackHandler
+      │  │     ├─ DashboardApp.kt     # 主页/导出说明页 + 导出/权限/结果弹窗 + BackHandler
       │  │     ├─ charts/
       │  │     │  └─ DashboardCharts.kt # MPAndroidChart 饼图/折线图封装
       │  │     ├─ components/
@@ -164,13 +168,15 @@ Fridge/
       │  │        └─ Theme.kt
       │  └─ res/
       │     ├─ drawable/ic_launcher.xml
+      │     ├─ xml/file_paths.xml      # FileProvider 只暴露 cache/exports
       │     └─ values/
       │        ├─ colors.xml          # 图表分类色
       │        ├─ strings.xml
       │        └─ themes.xml
       └─ test/
-         └─ java/com/fridge/dashboard/domain/stats/
-            └─ DashboardStatsCalculatorTest.kt # 统计口径单测
+         └─ java/com/fridge/dashboard/
+            ├─ domain/export/DashboardCsvFormatterTest.kt # 5 个 CSV 单测
+            └─ domain/stats/DashboardStatsCalculatorTest.kt # 统计口径单测
 ```
 
 ## 文件职责补充

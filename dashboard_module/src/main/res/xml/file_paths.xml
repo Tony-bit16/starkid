@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider 只暴露缓存目录中的导出文件。
+  公共下载目录中的副本由 MediaStore / 文件系统管理，不通过该 Provider 暴露。
+-->
+<paths>
+    <cache-path
+        name="exports"
+        path="exports/" />
+</paths>

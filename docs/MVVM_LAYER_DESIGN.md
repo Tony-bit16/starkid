@@ -112,11 +112,13 @@ com.fridge.main/
 
 ```text
 com.fridge.dashboard/
-├─ domain/stats/
-│  └─ DashboardStatsCalculator.kt     # 库存统计（纯 Kotlin）
+├─ domain/
+│  ├─ stats/DashboardStatsCalculator.kt # 库存统计（纯 Kotlin）
+│  └─ export/DashboardCsvFormatter.kt    # CSV BOM/CRLF/转义（纯 Kotlin）
 ├─ data/
 │  ├─ model/DashboardIngredient.kt
 │  ├─ provider/IngredientProviderClient.kt
+│  ├─ export/DashboardCsvExporter.kt     # MediaStore + FileProvider
 │  └─ repository/DashboardRepository.kt
 └─ ui/
    ├─ model/DashboardModels.kt
@@ -332,7 +334,28 @@ class IngredientProviderClient(private val context: Context) {
 - `query` 在 `Dispatchers.IO` 执行；`SecurityException` → 权限不足，`IllegalArgumentException` → 主 App 不可用，其他异常 → 查询失败。
 - `DefaultDashboardRepository` 只读转发；统计由 `DashboardStatsCalculator` 在 Default 线程完成。
 - 统计口径按库存条目数：`totalCount=ingredients.size`，`expiringCount` 为 0..3 天，`expiredCount` 为负数，分类按 count 降序。
-- 本轮没有 CSV 写入，导出页仅展示约定。
+- CSV 导出见 5.6；导出页只展示字段/位置/权限说明，实际写文件由 ViewModel 触发。
+
+### 5.6 看板 CSV 导出链路
+
+```kotlin
+interface DashboardCsvExporter {
+    suspend fun export(
+        fileName: String,
+        csvContent: String,
+    ): Result<CsvExportFile>
+}
+
+class AndroidDashboardCsvExporter(
+    private val context: Context,
+) : DashboardCsvExporter
+```
+
+- `DashboardCsvFormatter.format(ingredients)`：纯函数生成 UTF-8 BOM + CRLF 的 CSV；字段按 RFC 4180 转义。
+- `AndroidDashboardCsvExporter`：每次先写 `cacheDir/exports`，再按系统版本发布到公共 Downloads；返回 `content://...fileprovider/exports/...` 供打开。
+- ViewModel 只在 `Dispatchers.IO` 调用 export；成功后先发 `Success(file)`，再由 UI 弹窗打开。
+- 失败类型：`Permission`、`StorageFull`、`Write`；ViewModel 转中文，统计状态不受影响。
+- 旧系统权限申请属于 UI 层：API<=28 由 `DashboardApp` 请求 WRITE；API 29+ 不申请存储权限。
 
 ## 6. ViewModel 契约
 
@@ -605,15 +628,25 @@ class OnlineRecipeDetailViewModel(
 ### 6.9 DashboardHomeViewModel（看板）
 
 ```kotlin
-data class DashboardHomeUiState(
-    val state: DashboardUiState,
+data class DashboardExportUiState(
+    val isExporting: Boolean = false,
+    val result: DashboardExportResult? = null,
 )
+
+sealed interface DashboardExportResult {
+    data class Success(val file: CsvExportFile) : DashboardExportResult
+    data class Failure(val message: String) : DashboardExportResult
+}
 
 class DashboardHomeViewModel(
     private val repository: DashboardRepository,
+    private val exporter: DashboardCsvExporter,
 ) : ViewModel() {
     val uiState: StateFlow<DashboardUiState>
+    val exportState: StateFlow<DashboardExportUiState>
     fun retry()
+    fun exportCsv()
+    fun clearExportResult()
 
     companion object {
         fun factory(context: Context): ViewModelProvider.Factory
@@ -624,7 +657,8 @@ class DashboardHomeViewModel(
 - 每次 `retrySignal` 先发 `Loading`，再调用 `repository.loadIngredients()`；空列表 → `Empty`，成功后在 `Dispatchers.Default` 调用 `DashboardStatsCalculator.calculate()`，发射 `Success(DashboardHomeContent(stats, ingredients))`，失败 → `Error(title, message)`。
 - `stateIn(viewModelScope, WhileSubscribed(5_000), Loading)`；查询在 `Dispatchers.IO`，统计在 `Dispatchers.Default`。
 - `Error` 文案由 `DashboardDataException.toDashboardUserMessage()` 统一提供：未安装/权限不足/查询失败。
-- 本轮没有 `ExportState` 运行时状态；导出页为静态骨架，下一阶段再引入 SAF 写文件。
+- `exportCsv()`：先防重入置 `isExporting=true`，重新调用 `repository.loadIngredients()`；空数据直接失败；否则在 `Dispatchers.IO` 调 `DashboardCsvFormatter` + `exporter.export`，写 `result`，最后复位。
+- 导出失败不改变 `uiState`；统计/饼图仍可浏览。UI 只消费 `exportState` 弹窗，不直接写文件。
 
 ## 7. 线程与生命周期
 
@@ -721,7 +755,7 @@ ViewModel 由 `FridgeNavHost` 用 `viewModel(factory = ...)` 创建，Repository
 | Network | MockWebServer：搜索/详情 JSON、404/500、超时、断网、空 meals；断言 `NetworkResult` |
 | Compose | Loading/Empty/Error/Success 快照；点击卡片路由；表单校验 |
 | Migration | `MigrationTestHelper`：v1 数据 → v2，检查品类回填、外键、索引 |
-| Dashboard | Provider 权限/未安装/查询失败、Cursor 列名与映射；后续补 CSV 转义/中文/BOM |
+| Dashboard | Provider 权限/未安装/查询失败、Cursor 列名与映射；`DashboardCsvFormatterTest` 覆盖 BOM/CRLF/转义/状态/数量；旧系统存储权限分支需 API 28 仪器测试 |
 
 ## 11. 当前实现边界
 
@@ -744,10 +778,12 @@ ViewModel 由 `FridgeNavHost` 用 `viewModel(factory = ...)` 创建，Repository
 - 主 App `IngredientContentProvider`：signature 读写权限、只读 query、列白名单、MatrixCursor 输出。
 - 看板 `DashboardHomeViewModel` + `DashboardRepository` + `IngredientProviderClient`：ContentResolver 数据通道、四态、未安装/权限/查询错误降级。
 - `DashboardStatsCalculator`：总条目、0..3 天临期、已过期、分类条目数；`DashboardStatsCalculatorTest` 3 个 JVM 用例通过。
-- 看板三张指标卡 + MPAndroidChart 分类饼图；导出页完成字段/文件名骨架。
+- 看板三张指标卡 + MPAndroidChart 分类饼图。
+- 看板 CSV 导出：`DashboardCsvFormatter`、`AndroidDashboardCsvExporter`、MediaStore/旧版文件、FileProvider、权限/失败弹窗；`DashboardCsvFormatterTest` 5 个 JVM 用例通过。
+- 看板单测共 8 个（统计 3 + CSV 5），主 App 11 个，全项目 19 个 JVM 单测通过。
 
 未完成（下一轮）：
 
 - 本地菜谱关键词搜索（当前搜索只针对在线 API）。
 - 匹配的数量/单位换算、临期优先、别名归一。
-- 看板近 7 天趋势折线图、SAF CSV 实际写文件。
+- 看板近 7 天趋势折线图、按日期范围导出、云端上传。

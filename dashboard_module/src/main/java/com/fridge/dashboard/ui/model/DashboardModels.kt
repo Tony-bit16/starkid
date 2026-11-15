@@ -33,6 +33,24 @@ data class DashboardHomeContent(
     val ingredients: List<DashboardIngredient>,
 )
 
+/** 导出状态：进行中与最后一次结果分离，页面可以持续展示加载态。 */
+data class DashboardExportUiState(
+    val isExporting: Boolean = false,
+    val result: DashboardExportResult? = null,
+)
+
+sealed interface DashboardExportResult {
+    data class Success(
+        val fileName: String,
+        val displayPath: String,
+        val contentUri: String,
+    ) : DashboardExportResult
+
+    data class Failure(
+        val message: String,
+    ) : DashboardExportResult
+}
+
 /**
  * 看板页面状态：加载、空、错误、成功四态。
  *

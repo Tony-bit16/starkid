@@ -58,7 +58,8 @@ ViewModel
 - ViewModel：食材 3 个、本地菜谱 3 个、在线搜索/详情 2 个，通过 `StateFlow` 暴露四态或表单/操作状态；菜谱列表/详情额外观察库存 Flow 并调用匹配算法。
 - 菜谱新增/编辑共用 `RecipeForm`，食材清单按行动态增删；菜谱详情通过 Room Flow 自动刷新。
 - 在线菜谱详情保存时复用 `RecipeRepository.saveRecipe`，本地列表由同一个 Room Flow 自动刷新。
-- 看板已接真实数据通道：`DashboardHomeViewModel` → `DashboardRepository` → `IngredientProviderClient` → `ContentResolver`；读取后在 `domain/stats/DashboardStatsCalculator` 聚合，主页用三张指标卡 + MPAndroidChart 饼图展示，CSV 尚未接入。
+- 看板已接真实数据通道：`DashboardHomeViewModel` → `DashboardRepository` → `IngredientProviderClient` → `ContentResolver`；读取后在 `domain/stats/DashboardStatsCalculator` 聚合，主页用三张指标卡 + MPAndroidChart 饼图展示。
+- 看板 CSV 导出：`DashboardHomeViewModel.exportCsv()` 重新读取 Provider，交给 `DashboardCsvFormatter`（纯格式转换）与 `AndroidDashboardCsvExporter`（cache + MediaStore/旧版文件 + FileProvider URI）；导出状态独立于页面四态。
 - `FridgeApplication` 懒加载数据库与 Repository，并暴露 `ingredientRepository`、`recipeRepository`、`onlineRecipeRepository` 单例；`onCreate` 创建 `expiry_reminder` 渠道并调度每日 09:00 检查。
 - `notification/` 与 `work/` 不依赖 ViewModel：`ExpiryCheckWorker` 通过 `IngredientRepository.getAllIngredients()` 读取库存，按 `ExpiryCalculator` 筛选后调用 `ExpiryNotifications`。
 
@@ -346,10 +347,12 @@ sealed interface UiState<out T> {
 
 ### 6.2 文件导出
 
-- 使用 SAF `CreateDocument("text/csv")`，由系统授予单次写权限。
-- 不申请存储权限，不使用 `MANAGE_EXTERNAL_STORAGE`。
-- 用户取消 → 静默返回；写入异常 → 可重试的错误提示。
-- CSV 使用 UTF-8；建议带 BOM 以兼容 Excel 中文，具体在导出模块确定并测试。
+- Android 10+（API 29+）：使用 `MediaStore.Downloads` 写入公共 `Downloads/Fridge`，`IS_PENDING` 防半成品可见，不需要存储权限。
+- Android 7-9（API 24-28）：申请 `WRITE_EXTERNAL_STORAGE`（manifest `maxSdkVersion=28`），写公共 Downloads 后 `MediaScannerConnection` 扫描；拒绝/永久拒绝只影响导出，统计浏览不受影响。
+- 每次导出先在 `cacheDir/exports` 写一份副本，FileProvider（authority `${applicationId}.fileprovider`）只暴露该目录，供“打开文件”授予临时读权限；公共目录副本才是用户可长期访问的文件。
+- `DashboardCsvFormatter` 负责 UTF-8 BOM、CRLF、RFC 4180 转义、数量去尾零、状态文案；`AndroidDashboardCsvExporter` 负责存储与异常映射，二者都在 IO 协程执行。
+- 失败分类：权限不足、存储空间不足、写入失败；ViewModel 转中文弹窗，保留看板统计。无 CSV 查看器时提示安装文件管理器。
+- 文件命名 `fridge_inventory_yyyyMMdd_HHmmss.csv`；导出前重新读取 Provider，确保是最新库存。
 
 ## 7. 构建与依赖
 
@@ -381,7 +384,7 @@ sealed interface UiState<out T> {
 - ViewModel：`kotlinx-coroutines-test` + Turbine 验证四态顺序。
 - Compose：对 Loading / Empty / Error / Success 做 UI 测试；列表点击触发正确路由。
 - Provider：`ProviderTestRule` 验证权限、projection 白名单、Cursor 列名。
-- CSV：字段转义、逗号/引号/换行、中文编码、空数据。
+- CSV：`DashboardCsvFormatterTest` 已覆盖 BOM/CRLF、逗号/引号转义、状态边界、数量去尾零；空数据由 ViewModel 导出前拦截。`AndroidDashboardCsvExporter` 的 MediaStore/旧版权限路径需在 API 28/29 设备上补仪器测试。
 - Migration：`MigrationTestHelper` 验证 v1 → v2。
 
 ## 9. 已知风险 / 待确认
@@ -392,6 +395,9 @@ sealed interface UiState<out T> {
 - 数量单位不统一（个 / 克 / 毫升），匹配阶段暂不换算。
 - 匹配只判断“品类有库存”，不判断数量是否够：例如菜谱要 3 个鸡蛋、冰箱只有 1 个，仍会显示“完全可制作”；这是当前明确的业务边界。
 - 菜谱列表推荐需要加载全部菜谱与库存并在 `Dispatchers.Default` 计算；数据量很大时应改为分页/增量计算。
+- CSV 导出在 API 36 模拟器上验证了 MediaStore 路径；API 24-28 的 WRITE 权限分支只能在旧系统设备上做仪器测试，当前以代码审查与构建覆盖。
+- 导出文件只做 RFC 4180 转义，未对 Excel 公式注入（字段以 `= + - @` 开头）做额外前缀处理；若数据来源不可信，后续应加安全转义开关。
+- 文件公开副本名为时间戳，多次导出不会覆盖；缓存副本暂不自动清理，长期使用需补保留策略。
 - 品类合并/改名会影响历史快照展示；改名时是否同步更新 `Ingredient.name/category` 需产品确认。
 - 每日 09:00 与提前 3 天是当前固定规则，未提供用户配置；WorkManager 周期任务允许系统延迟，不能保证秒级准点。
 - 通知只按“品类有库存 + 0..3 天”筛选；同一品类多条批次会各自触发一次，合并文案可能出现重复名称，后续可按品类聚合。
