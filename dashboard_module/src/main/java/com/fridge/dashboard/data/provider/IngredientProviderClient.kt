@@ -1,13 +1,22 @@
 package com.fridge.dashboard.data.provider
 
 import android.content.Context
+import android.database.ContentObserver
 import android.database.Cursor
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import com.fridge.dashboard.data.model.DashboardDataException
 import com.fridge.dashboard.data.model.DashboardIngredient
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 /**
@@ -18,6 +27,34 @@ import kotlinx.coroutines.withContext
 class IngredientProviderClient(
     private val context: Context,
 ) {
+
+    /**
+     * 持续观察主 App 的食材表。
+     *
+     * 主 App Provider 在 Room 的 `ingredients` 表失效时会 `notifyChange`；
+     * 这里通过 ContentObserver 接收通知并重新查询，解决“看板停留在前台时
+     * 主 App 新增食材，看板必须手动重试才更新”的同步延迟。
+     *
+     * 首次订阅先主动查询一次；失败仍以 [Result] 发射，交给 ViewModel 映射为
+     * 错误态，不在这里抛异常。
+     */
+    fun observeIngredients(): Flow<Result<List<DashboardIngredient>>> = callbackFlow {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                // 高频写入时用 conflate 合并，避免排队多次重复查询。
+                trySend(Unit)
+            }
+        }
+        context.contentResolver.registerContentObserver(
+            IngredientProviderContract.CONTENT_URI,
+            true,
+            observer,
+        )
+        trySend(Unit)
+        awaitClose {
+            context.contentResolver.unregisterContentObserver(observer)
+        }
+    }.conflate().map { loadIngredients() }
 
     suspend fun loadIngredients(): Result<List<DashboardIngredient>> = withContext(Dispatchers.IO) {
         try {

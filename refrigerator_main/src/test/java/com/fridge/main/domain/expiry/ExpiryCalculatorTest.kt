@@ -47,4 +47,27 @@ class ExpiryCalculatorTest {
         assertTrue(ExpiryCalculator.isExpired(-1))
         assertFalse(ExpiryCalculator.isExpiringSoon(-1))
     }
+
+    @Test
+    fun `calendar day difference survives spring dst transition`() {
+        // 2026-03-08 美东进入夏令时：当天只有 23 小时。
+        // 若用毫秒差 / 86400000，跨过这一天可能出现少算 1 天的经典 bug。
+        val newYork = ZoneId.of("America/New_York")
+        val stored = LocalDate.of(2026, 3, 7)
+            .atStartOfDay(newYork)
+            .toInstant()
+            .toEpochMilli()
+
+        val expiry = ExpiryCalculator.expiryDate(stored, 3, newYork)
+        val daysLeft = ExpiryCalculator.daysLeft(
+            storedAt = stored,
+            shelfLifeDays = 3,
+            today = LocalDate.of(2026, 3, 10),
+            zoneId = newYork,
+        )
+
+        assertEquals(LocalDate.of(2026, 3, 10), expiry)
+        assertEquals(0, daysLeft)
+        assertTrue(ExpiryCalculator.isExpiringSoon(daysLeft))
+    }
 }

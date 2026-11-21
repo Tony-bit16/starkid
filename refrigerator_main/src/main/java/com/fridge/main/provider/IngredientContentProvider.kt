@@ -8,6 +8,7 @@ import android.database.MatrixCursor
 import android.net.Uri
 import android.os.Binder
 import android.os.Process
+import androidx.room.InvalidationTracker
 import com.fridge.main.FridgeApplication
 import com.fridge.main.data.local.entity.Ingredient
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +27,30 @@ import kotlinx.coroutines.runBlocking
  */
 class IngredientContentProvider : ContentProvider() {
 
-    override fun onCreate(): Boolean = true
+    /**
+     * Room 写入不会自动通知 ContentResolver。
+     *
+     * 看板通过 ContentObserver 监听 [IngredientProviderContract.CONTENT_URI]；
+     * 这里把 Room 的 `ingredients` 表失效事件转成 ContentResolver 通知，
+     * 看板无需重启即可看到主 App 新增/修改/删除后的最新数据。
+     */
+    private val ingredientTableObserver = object : InvalidationTracker.Observer("ingredients") {
+        override fun onInvalidated(tables: Set<String>) {
+            context?.contentResolver?.notifyChange(IngredientProviderContract.CONTENT_URI, null)
+        }
+    }
+
+    override fun onCreate(): Boolean {
+        // Provider 可能在没有页面时被系统创建；初始化失败不应让进程崩溃，
+        // query 仍会返回可读的错误结果。
+        runCatching {
+            (context?.applicationContext as? FridgeApplication)
+                ?.database
+                ?.invalidationTracker
+                ?.addObserver(ingredientTableObserver)
+        }
+        return true
+    }
 
     override fun query(
         uri: Uri,

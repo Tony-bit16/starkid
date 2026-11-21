@@ -87,13 +87,12 @@ class RecipeListViewModel(
                         recipeRepository.observeRecipes(),
                         ingredientRepository.observeIngredients(),
                     ) { recipes, ingredients ->
+                        val inStock = ingredients.filter { it.quantity > 0.0 }
                         Source.Loaded(
                             recipes = recipes,
-                            availableTypeIds = ingredients
-                                .asSequence()
-                                .filter { it.quantity > 0.0 }
-                                .map { it.typeId }
-                                .toSet(),
+                            availableTypeIds = inStock.map { it.typeId }.toSet(),
+                            // 历史数据可能存在同名不同 typeId；名称兜底见 RecipeMatcher。
+                            availableNames = inStock.map { it.name }.toSet(),
                         )
                     },
                 )
@@ -171,6 +170,7 @@ class RecipeListViewModel(
         val matches = RecipeMatcher.matchAll(
             recipes = recipes.map { it.toMatchableRecipe() },
             availableTypeIds = availableTypeIds,
+            availableNames = availableNames,
         )
         val items = matches.mapNotNull { match ->
             byId[match.recipeId]?.let { recipe ->
@@ -196,6 +196,7 @@ class RecipeListViewModel(
         data class Loaded(
             val recipes: List<RecipeWithIngredients>,
             val availableTypeIds: Set<Long>,
+            val availableNames: Set<String>,
         ) : Source
 
         data class Failed(val message: String) : Source

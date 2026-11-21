@@ -8,7 +8,6 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import kotlin.math.abs
 
 /**
  * 新增/编辑食材共用的表单状态。
@@ -154,10 +153,14 @@ fun localStartOfDayToUtcDate(localMillis: Long): Long =
         .toInstant()
         .toEpochMilli()
 
-/** 供 UI 断言/调试使用的“同一天”判断。 */
+/**
+ * 供 UI 断言/调试使用的“同一天”判断。
+ *
+ * 只比较本地日历日，不能用 `abs(毫秒差) < 86_400_000`：
+ * 夏令时切换日可能是 23 或 25 小时，固定 24 小时会误判。
+ */
 fun isSameLocalDay(firstMillis: Long, secondMillis: Long): Boolean =
-    abs(firstMillis - secondMillis) < 86_400_000L &&
-        Instant.ofEpochMilli(firstMillis).atZone(ZoneId.systemDefault()).toLocalDate() ==
+    Instant.ofEpochMilli(firstMillis).atZone(ZoneId.systemDefault()).toLocalDate() ==
         Instant.ofEpochMilli(secondMillis).atZone(ZoneId.systemDefault()).toLocalDate()
 
 private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.CHINA)

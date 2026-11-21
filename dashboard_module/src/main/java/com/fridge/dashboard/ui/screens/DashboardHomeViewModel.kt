@@ -9,6 +9,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.fridge.dashboard.data.export.AndroidDashboardCsvExporter
 import com.fridge.dashboard.data.export.CsvExportException
 import com.fridge.dashboard.data.export.DashboardCsvExporter
+import com.fridge.dashboard.data.model.DashboardIngredient
 import com.fridge.dashboard.data.model.toDashboardUserMessage
 import com.fridge.dashboard.data.provider.IngredientProviderClient
 import com.fridge.dashboard.data.repository.DashboardRepository
@@ -25,7 +26,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -34,7 +36,9 @@ import kotlinx.coroutines.withContext
 /**
  * 看板主页 ViewModel。
  *
- * 每次进入页面/点击重试都重新查询 ContentProvider；查询在客户端内切到 IO 线程，
+ * 订阅 [DashboardRepository.observeIngredients]：首次订阅立即查询一次，之后主 App
+ * 的 Room 写入会通过 Provider 的 `notifyChange` 推送过来，看板无需手动重试。
+ * 查询在客户端内切到 IO 线程，统计在 [Dispatchers.Default] 计算；
  * 页面只消费 Loading / Empty / Error / Success 四态。
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -50,50 +54,48 @@ class DashboardHomeViewModel(
 
     val state = retrySignal
         .flatMapLatest {
-            flow {
-                emit(DashboardUiState.Loading)
-                val result = repository.loadIngredients()
-                emit(
-                    result.fold(
-                        onSuccess = { ingredients ->
-                            if (ingredients.isEmpty()) {
-                                DashboardUiState.Empty
-                            } else {
-                                // 聚合计算放在 Default 线程，避免页面首次展示时卡顿。
-                                val stats = withContext(Dispatchers.Default) {
-                                    DashboardStatsCalculator.calculate(ingredients)
-                                }
-                                DashboardUiState.Success(
-                                    DashboardHomeContent(
-                                        stats = stats,
-                                        ingredients = ingredients,
-                                    ),
-                                )
-                            }
-                        },
-                        onFailure = { error ->
-                            DashboardUiState.Error(
-                                title = "读取失败",
-                                message = error.toDashboardUserMessage(),
-                            )
-                        },
-                    ),
-                )
-            }
-        }
-        .catch { error ->
-            emit(
-                DashboardUiState.Error(
-                    title = "读取失败",
-                    message = error.toDashboardUserMessage(),
-                ),
-            )
+            repository.observeIngredients()
+                .map { result -> result.toUiState() }
+                .onStart { emit(DashboardUiState.Loading) }
+                .catch { error ->
+                    emit(
+                        DashboardUiState.Error(
+                            title = "读取失败",
+                            message = error.toDashboardUserMessage(),
+                        ),
+                    )
+                }
         }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = DashboardUiState.Loading,
         )
+
+    /** 把 Provider 查询结果聚合为页面四态；统计计算离开主线程。 */
+    private suspend fun Result<List<DashboardIngredient>>.toUiState(): DashboardUiState = fold(
+        onSuccess = { ingredients ->
+            if (ingredients.isEmpty()) {
+                DashboardUiState.Empty
+            } else {
+                val stats = withContext(Dispatchers.Default) {
+                    DashboardStatsCalculator.calculate(ingredients)
+                }
+                DashboardUiState.Success(
+                    DashboardHomeContent(
+                        stats = stats,
+                        ingredients = ingredients,
+                    ),
+                )
+            }
+        },
+        onFailure = { error ->
+            DashboardUiState.Error(
+                title = "读取失败",
+                message = error.toDashboardUserMessage(),
+            )
+        },
+    )
 
     fun retry() {
         retrySignal.update { it + 1 }

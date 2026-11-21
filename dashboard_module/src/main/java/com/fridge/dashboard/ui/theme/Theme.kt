@@ -1,11 +1,14 @@
 package com.fridge.dashboard.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
 private val DashboardGreen = Color(0xFF2F6B4F)
 private val DashboardOrange = Color(0xFFD9822B)
@@ -27,6 +30,20 @@ private val LightColors = lightColorScheme(
     onSurfaceVariant = Color(0xFF444841),
     error = Color(0xFFBA1A1A),
     onError = Color.White,
+)
+
+/**
+ * 与主 App 完全一致的圆角尺度：6 / 10 / 14 / 18 / 24dp。
+ *
+ * 两个 App 物理上独立，不能共享资源；这里通过相同数值保持视觉一致。
+ * 新增页面时应优先使用 `MaterialTheme.shapes.*`，不要再写死圆角。
+ */
+private val DashboardShapes = Shapes(
+    extraSmall = RoundedCornerShape(6.dp),
+    small = RoundedCornerShape(10.dp),
+    medium = RoundedCornerShape(14.dp),
+    large = RoundedCornerShape(18.dp),
+    extraLarge = RoundedCornerShape(24.dp),
 )
 
 private val DarkColors = darkColorScheme(
@@ -55,6 +72,7 @@ fun DashboardTheme(
 ) {
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
+        shapes = DashboardShapes,
         content = content,
     )
 }

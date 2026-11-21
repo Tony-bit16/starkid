@@ -301,8 +301,9 @@ _id, type_id, name, category, stored_at, shelf_life_days, quantity, unit
 
 - 固定 projection 白名单，未知列抛 `IllegalArgumentException`，拒绝任意列名。
 - 返回 `MatrixCursor` 的列名作为稳定契约；改名视为 breaking change。
-- `setNotificationUri` 指向同一 URI，为后续观察数据变化预留。
+- `setNotificationUri` 指向同一 URI；主 App Provider 同时注册 Room `InvalidationTracker.Observer("ingredients")`，表失效时主动 `notifyChange`。
 - 看板 `IngredientProviderClient` 先 `resolveContentProvider` 判断主 App 是否安装，再 `ContentResolver.query`；Cursor 映射为 `DashboardIngredient`。
+- 看板通过 `callbackFlow + ContentObserver` 观察同一 URI，主 App 新增/修改/删除后自动重新查询；`conflate()` 合并高频写入，避免重复刷新。
 - 看板对 `SecurityException` 提示权限不足；对 `IllegalArgumentException` 提示主 App 不可用；其他查询异常提示“读取失败”，均不崩溃。
 - 主 App 未安装时错误态显示“未检测到冰箱管家”；主 App 无食材时显示空态与“重新读取”。
 

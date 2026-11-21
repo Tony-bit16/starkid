@@ -322,14 +322,17 @@ interface OnlineRecipeRepository {
 ```kotlin
 interface DashboardRepository {
     suspend fun loadIngredients(): Result<List<DashboardIngredient>>
+    fun observeIngredients(): Flow<Result<List<DashboardIngredient>>>
 }
 
 class IngredientProviderClient(private val context: Context) {
     suspend fun loadIngredients(): Result<List<DashboardIngredient>>
+    fun observeIngredients(): Flow<Result<List<DashboardIngredient>>>
 }
 ```
 
 - `IngredientProviderClient` 先 `resolveContentProvider` 判断主 App 是否安装，再 `ContentResolver.query()`；不打开 `fridge.db`。
+- `observeIngredients()` 用 `callbackFlow + ContentObserver` 监听 Provider URI；首次订阅立即查询，后续主 App `notifyChange` 自动重查，`conflate()` 合并高频写入。
 - Cursor 映射为 `DashboardIngredient`（id/typeId/name/category/storedAt/shelfLifeDays/quantity/unit/labels）。
 - `query` 在 `Dispatchers.IO` 执行；`SecurityException` → 权限不足，`IllegalArgumentException` → 主 App 不可用，其他异常 → 查询失败。
 - `DefaultDashboardRepository` 只读转发；统计由 `DashboardStatsCalculator` 在 Default 线程完成。
@@ -654,7 +657,8 @@ class DashboardHomeViewModel(
 }
 ```
 
-- 每次 `retrySignal` 先发 `Loading`，再调用 `repository.loadIngredients()`；空列表 → `Empty`，成功后在 `Dispatchers.Default` 调用 `DashboardStatsCalculator.calculate()`，发射 `Success(DashboardHomeContent(stats, ingredients))`，失败 → `Error(title, message)`。
+- `retrySignal.flatMapLatest` 订阅 `repository.observeIngredients()`；每次订阅先发 `Loading`，结果为空 → `Empty`，成功后在 `Dispatchers.Default` 调用 `DashboardStatsCalculator.calculate()`，发射 `Success(DashboardHomeContent(stats, ingredients))`，失败 → `Error(title, message)`。
+- 主 App 写入触发 Provider `notifyChange` 后，Flow 自动重查并刷新统计/饼图；`retry()` 只用于错误恢复。
 - `stateIn(viewModelScope, WhileSubscribed(5_000), Loading)`；查询在 `Dispatchers.IO`，统计在 `Dispatchers.Default`。
 - `Error` 文案由 `DashboardDataException.toDashboardUserMessage()` 统一提供：未安装/权限不足/查询失败。
 - `exportCsv()`：先防重入置 `isExporting=true`，重新调用 `repository.loadIngredients()`；空数据直接失败；否则在 `Dispatchers.IO` 调 `DashboardCsvFormatter` + `exporter.export`，写 `result`，最后复位。

@@ -145,6 +145,8 @@ class OnlineRecipeListViewModel(
     }
 
     fun retry() {
+        // 重试时先收起上一次的失败弹窗，避免旧弹窗遮住新的加载状态。
+        _uiState.update { it.copy(errorDialogMessage = null) }
         search()
     }
 

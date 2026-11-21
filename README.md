@@ -11,7 +11,7 @@
 
 ## 当前阶段
 
-**第十二轮：伴生看板 CSV 导出与 FileProvider 下载。**
+**第十三轮：全项目体验优化、问题修复与代码规范化。**
 
 已经落地：
 
@@ -52,6 +52,13 @@
 - Android 10+ 通过 MediaStore 写入公共 `Downloads/Fridge`，无需存储权限；Android 7-9 才申请旧版 WRITE 权限，拒绝/永久拒绝均不阻断统计浏览。
 - 导出用 UTF-8 BOM + CRLF 兼容 Excel；文件经 FileProvider 暴露缓存副本，可直接打开；加载、成功、无数据、无查看器、空间不足均有明确提示。
 - `DashboardCsvFormatter` 覆盖字段转义、状态边界与数量格式，配套 5 个 JVM 单测。
+- 第十三轮：主 App 与看板统一 Shape 尺度（6/10/14/18/24dp）、卡片圆角与阴影；关键卡片不再写死圆角。
+- 看板通过 Room `InvalidationTracker` → `ContentProvider.notifyChange` → `ContentObserver` 自动刷新，主 App 写入后无需手动重试。
+- 菜谱匹配增加规范化名称兜底，历史数据出现“同名不同 typeId”时仍可命中；配套单测。
+- 修复“同一天”判断按固定 24 小时比较的问题，新增夏令时 23 小时日的到期计算测试。
+- 在线搜索进入自动聚焦，搜索开始或点击按钮后自动收起键盘；下拉刷新与错误提示保持原行为。
+- CSV 增加 UTF-8 BOM 字节级测试；核心算法、WorkManager、Retrofit、Provider、Room 关键路径补充注释。
+- 新增 [功能清单](docs/FEATURES.md) 与 [版本更新记录](docs/CHANGELOG.md)。
 
 明确尚未实现：
 
@@ -80,6 +87,8 @@
 - [MVVM 分层契约](docs/MVVM_LAYER_DESIGN.md)
 - [页面 UI 原型](docs/UI_PROTOTYPE.md)
 - [项目目录结构](docs/PROJECT_STRUCTURE.md)
+- [功能清单](docs/FEATURES.md)
+- [版本更新记录](docs/CHANGELOG.md)
 
 ## 构建
 
@@ -113,9 +122,10 @@ dashboard_module/build/outputs/apk/debug/dashboard_module-debug.apk
 1. 看板近 7 天趋势折线图与按日期范围导出。
 2. 匹配增强：库存数量是否足够、临期食材优先。
 3. 本地菜谱搜索、分类筛选、图片与数量快捷调整等增强。
+4. 答辩演示脚本、无障碍走查与性能基线。
 
 ## 本次提交
 
 ```text
-feat: 伴生看板实现统计数据CSV导出功能
+feat: 全项目UI打磨，bug修复，代码注释完善
 ```

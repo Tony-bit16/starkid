@@ -72,12 +72,10 @@ class RecipeDetailViewModel(
                 repository.observeRecipe(recipeId),
                 ingredientRepository.observeIngredients(),
             ) { recipe, ingredients ->
-                val availableTypeIds = ingredients
-                    .asSequence()
-                    .filter { it.quantity > 0.0 }
-                    .map { it.typeId }
-                    .toSet()
-                val hasInventory = ingredients.any { it.quantity > 0.0 }
+                val inStock = ingredients.filter { it.quantity > 0.0 }
+                val availableTypeIds = inStock.map { it.typeId }.toSet()
+                val availableNames = inStock.map { it.name }.toSet()
+                val hasInventory = inStock.isNotEmpty()
 
                 if (recipe == null) {
                     DetailData(
@@ -91,6 +89,7 @@ class RecipeDetailViewModel(
                         match = RecipeMatcher.evaluate(
                             recipe = recipe.toMatchableRecipe(),
                             availableTypeIds = availableTypeIds,
+                            availableNames = availableNames,
                         ),
                         availableTypeIds = availableTypeIds,
                         hasInventory = hasInventory,

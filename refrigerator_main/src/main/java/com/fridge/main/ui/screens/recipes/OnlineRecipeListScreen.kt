@@ -27,8 +27,19 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,6 +49,7 @@ import com.fridge.main.ui.components.EmptyStateLayout
 import com.fridge.main.ui.components.ErrorStateLayout
 import com.fridge.main.ui.components.LoadingStateLayout
 import com.fridge.main.ui.components.RefreshableContent
+import kotlinx.coroutines.delay
 
 /**
  * 在线菜谱搜索页。
@@ -56,6 +68,13 @@ fun OnlineRecipeListScreen(
     onDismissErrorDialog: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(uiState.result) {
+        if (uiState.result !is OnlineSearchResult.Idle) {
+            keyboardController?.hide()
+        }
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         OnlineSearchHeader(
             uiState = uiState,
@@ -128,6 +147,32 @@ private fun OnlineSearchHeader(
 ) {
     val isLoading = uiState.result is OnlineSearchResult.Loading
     val isBusy = isLoading || uiState.isRefreshing
+    val focusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    var hasAutoFocused by rememberSaveable { mutableStateOf(false) }
+
+    // 进入在线搜索页时直接聚焦输入框并弹出键盘，减少一次点击。
+    // 用持久标记避免搜索状态变化触发重组后再次抢焦点。
+    LaunchedEffect(Unit) {
+        if (!hasAutoFocused) {
+            focusRequester.requestFocus()
+            hasAutoFocused = true
+        }
+    }
+
+    // 搜索一开始就收起键盘。IME 的 Search 动作不会自动把焦点移出输入框，
+    // 仅在点击按钮时 clearFocus 才可靠，因此这里按搜索状态兜底隐藏。
+    LaunchedEffect(uiState.result) {
+        if (uiState.result !is OnlineSearchResult.Idle) {
+            // IME 的 Search 动作后，TextField 仍可能保有焦点并让系统重新弹起键盘；
+            // 等一帧稳定后主动释放焦点，再收起 IME。
+            delay(120)
+            focusRequester.freeFocus()
+            focusManager.clearFocus(force = true)
+            keyboardController?.hide()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -142,7 +187,12 @@ private fun OnlineSearchHeader(
             OutlinedTextField(
                 value = uiState.query,
                 onValueChange = onQueryChange,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(focusRequester)
+                    // 搜索期间让输入框暂时不可聚焦，Compose 会主动移除焦点，
+                    // 避免 IME 的 Search 动作完成后键盘又被系统重新拉起。
+                    .focusProperties { canFocus = !isBusy },
                 label = { Text("菜名") },
                 placeholder = { Text("例如 Arrabiata") },
                 singleLine = true,
@@ -153,10 +203,22 @@ private fun OnlineSearchHeader(
                     }
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                keyboardActions = KeyboardActions(
+                    onSearch = {
+                        focusRequester.freeFocus()
+                        focusManager.clearFocus(force = true)
+                        keyboardController?.hide()
+                        onSearch()
+                    },
+                ),
             )
             Button(
-                onClick = onSearch,
+                onClick = {
+                    focusRequester.freeFocus()
+                    focusManager.clearFocus(force = true)
+                    keyboardController?.hide()
+                    onSearch()
+                },
                 // 空关键词也允许点击，由 ViewModel 给出即时错误提示，避免“按钮灰着但不知道为什么”。
                 enabled = !isBusy,
                 modifier = Modifier.padding(top = 8.dp),

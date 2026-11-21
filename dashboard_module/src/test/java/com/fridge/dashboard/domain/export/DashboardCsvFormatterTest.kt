@@ -1,6 +1,7 @@
 package com.fridge.dashboard.domain.export
 
 import com.fridge.dashboard.data.model.DashboardIngredient
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -22,6 +23,23 @@ class DashboardCsvFormatterTest {
 
         assertTrue(csv.startsWith("\uFEFF食材名称,分类,数量,单位,入库时间,剩余保质期(天),过期状态\r\n"))
         assertTrue(csv.contains("番茄,蔬菜,2.5,kg,2026-11-15,2,临期\r\n"))
+    }
+
+    @Test
+    fun `utf8 bytes start with bom and keep chinese readable`() {
+        val csv = DashboardCsvFormatter.format(
+            ingredients = listOf(ingredient(name = "番茄", category = "蔬菜")),
+            today = today,
+            zoneId = zone,
+        )
+
+        val bytes = csv.toByteArray(Charsets.UTF_8)
+        assertArrayEquals(
+            byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()),
+            bytes.copyOfRange(0, 3),
+        )
+        // 用 UTF-8 重新解码后中文不应乱码。
+        assertTrue(String(bytes, Charsets.UTF_8).contains("番茄,蔬菜"))
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.fridge.main.domain.matching
 
+import java.util.Locale
+
 /**
  * 推荐等级。顺序即列表排序优先级：越靠前越容易做。
  */
@@ -59,27 +61,51 @@ object RecipeMatcher {
     fun matchAll(
         recipes: List<MatchableRecipe>,
         availableTypeIds: Set<Long>,
-    ): List<RecipeMatchResult> = recipes
-        .map { evaluate(it, availableTypeIds) }
-        .sortedWith(
-            compareBy<RecipeMatchResult> { it.level.ordinal }
-                // 空菜谱没有食材清单，不能因为 missing.size == 0 排到“缺多种”前面。
-                .thenBy { if (it.totalCount == 0) Int.MAX_VALUE else it.missingIngredients.size }
-                .thenBy { it.recipeName },
-        )
+        availableNames: Set<String> = emptySet(),
+    ): List<RecipeMatchResult> {
+        // 一次性规范化库存名称，避免在每道菜谱的循环里重复做 trim/lowercase。
+        val normalizedNames = availableNames.mapTo(mutableSetOf(), ::normalizeName)
+        return recipes
+            .map { evaluateInternal(it, availableTypeIds, normalizedNames) }
+            .sortedWith(
+                compareBy<RecipeMatchResult> { it.level.ordinal }
+                    // 空菜谱没有食材清单，不能因为 missing.size == 0 排到“缺多种”前面。
+                    .thenBy { if (it.totalCount == 0) Int.MAX_VALUE else it.missingIngredients.size }
+                    .thenBy { it.recipeName },
+            )
+    }
 
     /**
      * 计算单道菜谱的匹配结果，供详情页展示“已有 / 缺少”状态。
+     *
+     * [availableNames] 是兼容历史数据的兜底：早期版本可能为同名食材产生过
+     * 不同 typeId（大小写/空白差异），此时仅靠 id 会漏匹配。名称统一
+     * `trim + 连续空白折叠 + Locale.ROOT 小写` 后比较，不区分大小写。
      */
     fun evaluate(
         recipe: MatchableRecipe,
         availableTypeIds: Set<Long>,
+        availableNames: Set<String> = emptySet(),
+    ): RecipeMatchResult = evaluateInternal(
+        recipe = recipe,
+        availableTypeIds = availableTypeIds,
+        normalizedNames = availableNames.mapTo(mutableSetOf(), ::normalizeName),
+    )
+
+    private fun evaluateInternal(
+        recipe: MatchableRecipe,
+        availableTypeIds: Set<Long>,
+        normalizedNames: Set<String>,
     ): RecipeMatchResult {
+        fun isAvailable(ingredient: MatchableIngredient): Boolean =
+            ingredient.typeId in availableTypeIds ||
+                normalizeName(ingredient.name) in normalizedNames
+
         val available = recipe.ingredients
-            .filter { it.typeId in availableTypeIds }
+            .filter(::isAvailable)
             .map { it.name }
         val missing = recipe.ingredients
-            .filterNot { it.typeId in availableTypeIds }
+            .filterNot(::isAvailable)
             .map { it.name }
 
         // 正常菜谱至少有一种食材；空菜谱按“缺少多种食材”处理，避免误判为可做。
@@ -98,4 +124,10 @@ object RecipeMatcher {
             missingIngredients = missing,
         )
     }
+
+    /** 与仓库层 `normalizeName` 保持同一口径：去首尾、折叠空白、忽略大小写。 */
+    private fun normalizeName(raw: String): String =
+        raw.trim().replace(WHITESPACE_REGEX, " ").lowercase(Locale.ROOT)
+
+    private val WHITESPACE_REGEX = Regex("\\s+")
 }

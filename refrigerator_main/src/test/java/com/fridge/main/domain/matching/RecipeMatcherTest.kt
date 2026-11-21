@@ -56,6 +56,26 @@ class RecipeMatcherTest {
     }
 
     @Test
+    fun `matches legacy ingredients by normalized name when type ids differ`() {
+        val result = RecipeMatcher.evaluate(
+            recipe = MatchableRecipe(
+                id = 20,
+                name = "番茄炒蛋",
+                ingredients = listOf(
+                    MatchableIngredient(typeId = 100, name = "Tomato"),
+                    MatchableIngredient(typeId = 101, name = "Egg"),
+                ),
+            ),
+            availableTypeIds = setOf(200), // 历史数据给同名食材生成了另一个 typeId
+            availableNames = setOf("  tomato  ", "EGG"),
+        )
+
+        assertEquals(RecipeMatchLevel.FULLY_COOKABLE, result.level)
+        assertEquals(listOf("Tomato", "Egg"), result.availableIngredients)
+        assertEquals(emptyList<String>(), result.missingIngredients)
+    }
+
+    @Test
     fun `recipe without ingredients is not treated as cookable`() {
         val result = RecipeMatcher.evaluate(
             MatchableRecipe(id = 1, name = "空菜谱", ingredients = emptyList()),
