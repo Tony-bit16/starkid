@@ -39,4 +39,24 @@ class ExpiryReminderSchedulerTest {
             ExpiryReminderScheduler.initialDelayMillis(now),
         )
     }
+
+    @Test
+    fun `custom reminder time is used`() {
+        val now = ZonedDateTime.of(2026, 11, 14, 8, 30, 0, 0, zone)
+
+        assertEquals(
+            Duration.ofHours(12).plusMinutes(45).toMillis(),
+            ExpiryReminderScheduler.initialDelayMillis(now, hour = 21, minute = 15),
+        )
+    }
+
+    @Test
+    fun `invalid reminder time is clamped to a valid time`() {
+        val now = ZonedDateTime.of(2026, 11, 14, 8, 30, 0, 0, zone)
+
+        assertEquals(
+            Duration.ofHours(14).plusMinutes(30).toMillis(),
+            ExpiryReminderScheduler.initialDelayMillis(now, hour = 25, minute = 0),
+        )
+    }
 }

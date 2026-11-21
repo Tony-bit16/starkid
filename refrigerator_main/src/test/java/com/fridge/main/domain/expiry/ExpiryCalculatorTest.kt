@@ -43,6 +43,14 @@ class ExpiryCalculatorTest {
     }
 
     @Test
+    fun `custom warning window is respected`() {
+        assertTrue(ExpiryCalculator.isExpiringSoon(daysLeft = 7, warningDays = 7))
+        assertFalse(ExpiryCalculator.isExpiringSoon(daysLeft = 8, warningDays = 7))
+        // 关闭提醒窗口的极端值不应把“今天到期”也排除。
+        assertTrue(ExpiryCalculator.isExpiringSoon(daysLeft = 0, warningDays = 0))
+    }
+
+    @Test
     fun `negative days left is expired and not expiring soon`() {
         assertTrue(ExpiryCalculator.isExpired(-1))
         assertFalse(ExpiryCalculator.isExpiringSoon(-1))

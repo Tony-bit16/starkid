@@ -90,6 +90,9 @@ dependencies {
     // 每日保质期巡检：PeriodicWorkRequest + CoroutineWorker。
     implementation(libs.androidx.work.runtime.ktx)
 
+    // 设置持久化：Preferences DataStore，替代 SharedPreferences。
+    implementation(libs.androidx.datastore.preferences)
+
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

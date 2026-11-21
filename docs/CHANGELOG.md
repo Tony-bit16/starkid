@@ -2,9 +2,16 @@
 
 > 按开发轮次记录。提交哈希对应 `main` 分支的实际 Git 历史。
 
+## 第十四轮：设置页与 DataStore（本轮）
+
+- 目标提交 `feat: 新增设置页，DataStore保存应用配置与预警参数`。
+- 食材库顶部设置入口；提前 1–7 天、每日提醒时间、通知总开关。
+- Preferences DataStore `fridge_settings` 持久化，读写走 IO；关于页。
+- WorkManager 按配置重排，Worker 读取提前天数与通知开关。
+
 ## 第十三轮：全项目体验优化
 
-- 本次提交 `feat: 全项目UI打磨，bug修复，代码注释完善`。
+- `52c1988` `feat: 全项目UI打磨，bug修复，代码注释完善`。
 - 统一主 App 与看板的 Shape 尺度（6/10/14/18/24dp）、卡片圆角与阴影。
 - 看板通过 Room `InvalidationTracker` → ContentProvider `notifyChange` → `ContentObserver` 实时同步。
 - 菜谱匹配增加规范化名称兜底，兼容历史同名不同 `typeId` 数据。
@@ -41,7 +48,7 @@
 ## 第八轮：保质期提醒
 
 - `40d2c01` `feat: WorkManager定时检测，实现食材保质期通知提醒`
-- WorkManager 每日 09:00 巡检、合并通知、点击跳转食材库、通知权限降级、三色标签。
+- WorkManager 每日巡检（默认 09:00）、合并通知、点击跳转食材库、通知权限降级、三色标签；第十四轮改为可配置。
 
 ## 第七轮：食材匹配推荐
 

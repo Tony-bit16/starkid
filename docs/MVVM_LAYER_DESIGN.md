@@ -2,10 +2,11 @@
 
 > 第二轮定义结构与接口；第四轮实现食材模块，第五轮实现菜谱模块，第六轮实现在线菜谱搜索，
 > 第七轮实现食材匹配推荐，第八轮实现保质期提醒，第九轮完成全链路联调，
-> 第十轮打通看板 ContentProvider 数据通道，第十一轮完成看板库存统计与分类饼图。食材/本地菜谱各 3 个 ViewModel、
-> 在线菜谱 2 个 ViewModel、看板 1 个 ViewModel、5 个 Repository、`RecipeMatcher`、
-> `ExpiryCalculator`、`DashboardStatsCalculator` 与 WorkManager 提醒链路均已落地；
-> 看板折线图与 CSV 仍为后续。
+> 第十轮打通看板 ContentProvider 数据通道，第十一轮完成看板库存统计与分类饼图，
+> 第十二轮完成 CSV 导出，第十三轮完成视觉/同步/异常打磨，第十四轮新增设置页与 DataStore。
+> 食材/本地菜谱各 3 个 ViewModel、在线菜谱 2 个、设置 1 个、看板 1 个 ViewModel，
+> `SettingsRepository`、`RecipeMatcher`、`ExpiryCalculator`、`DashboardStatsCalculator`
+> 与 WorkManager 提醒链路均已落地。
 > 本文保留目标契约，实际实现以 `com.fridge.main` / `com.fridge.dashboard` 源码为准。
 
 ## 1. 分层与依赖方向
@@ -28,9 +29,11 @@ DAO（Room）              Remote API（Retrofit/OkHttp）
    ▼                         ▼
 SQLite（fridge.db）      TheMealDB（HTTPS）
 
-WorkManager ──► ExpiryCheckWorker ──► IngredientRepository.getAllIngredients()
-                     │                 └─ DAO（Room）
+WorkManager ──► ExpiryCheckWorker ──► SettingsRepository.settings
+                     │                 ├─ IngredientRepository.getAllIngredients() → DAO
+                     │                 └─ ExpiryCalculator(warningDays)
                      └─ ExpiryNotifications（渠道/合并通知）
+SettingsViewModel ──► SettingsRepository（DataStore）──► ExpiryReminderScheduler.reschedule()
 ```
 
 硬规则：
@@ -86,21 +89,24 @@ com.fridge.main/
 │  │     ├─ MealDto.kt
 │  │     ├─ MealMapper.kt
 │  │     └─ OnlineRecipe.kt
-│  └─ repository/
-│     ├─ IngredientRepository.kt      # 接口 + Draft 模型
-│     ├─ DefaultIngredientRepository.kt
-│     ├─ RecipeRepository.kt          # 接口 + Draft/Match 模型
-│     ├─ DefaultRecipeRepository.kt
-│     ├─ OnlineRecipeRepository.kt    # 在线搜索/详情/保存
-│     └─ DefaultOnlineRecipeRepository.kt
+│  ├─ repository/
+│  │  ├─ IngredientRepository.kt      # 接口 + Draft 模型
+│  │  ├─ DefaultIngredientRepository.kt
+│  │  ├─ RecipeRepository.kt          # 接口 + Draft/Match 模型
+│  │  ├─ DefaultRecipeRepository.kt
+│  │  ├─ OnlineRecipeRepository.kt    # 在线搜索/详情/保存
+│  │  └─ DefaultOnlineRecipeRepository.kt
+│  └─ settings/
+│     ├─ AppSettings.kt               # 提醒天数/时间/通知开关值对象
+│     └─ SettingsRepository.kt        # Preferences DataStore 契约与实现
 ├─ notification/
 │  └─ ExpiryNotifications.kt       # 渠道、合并通知、PendingIntent
 ├─ work/
-│  ├─ ExpiryCheckWorker.kt         # 后台读取库存并推送
-│  └─ ExpiryReminderScheduler.kt   # 每日 09:00 周期任务
+│  ├─ ExpiryCheckWorker.kt         # 读取设置/库存并推送
+│  └─ ExpiryReminderScheduler.kt   # 唯一周期任务；默认 09:00，可配置重排
 ├─ ui/
 │  ├─ model/                          # UI 展示模型（Entity/Remote → UI 映射已落地）
-│  ├─ viewmodel/                      # 8 个主 App ViewModel（食材/本地菜谱/在线菜谱）
+│  ├─ viewmodel/                      # 9 个主 App ViewModel（食材/本地菜谱/在线菜谱/设置）
 │  ├─ screens/                        # Compose 页面
 │  ├─ components/
 │  ├─ navigation/
@@ -311,10 +317,12 @@ interface OnlineRecipeRepository {
 
 ### 5.4 保质期提醒链路（非 ViewModel）
 
-- `ExpiryReminderScheduler.scheduleDaily()`：唯一周期任务 `ingredient_expiry_daily_check`，每 1 天、下一个本地 09:00 首次执行，`ExistingPeriodicWorkPolicy.KEEP`。
-- `ExpiryCheckWorker`：`CoroutineWorker` + `Dispatchers.IO`，调用 `IngredientRepository.getAllIngredients()`，使用 `ExpiryCalculator` 筛 0..3 天，交给 `ExpiryNotifications`。
+- `ExpiryReminderScheduler.ensureScheduled(context, settings)`：唯一周期任务 `ingredient_expiry_daily_check`，启动时 `KEEP`；通知关闭则取消。
+- `reschedule(context, settings)`：设置变更时 `REPLACE`，按新的本地小时/分钟计算首次延迟；`cancel()` 取消任务。
+- `ExpiryCheckWorker`：`CoroutineWorker` + `Dispatchers.IO`，读取 `SettingsRepository.settings.first()`，调用 `IngredientRepository.getAllIngredients()`，使用 `ExpiryCalculator.isExpiringSoon(warningDays)` 筛选，交给 `ExpiryNotifications`。
 - `ExpiryNotifications`：创建 `expiry_reminder` 渠道、合并通知、`PendingIntent` 打开 `MainActivity`；`canPost()` 统一检查权限/总开关/渠道。
-- 权限拒绝：Worker 返回 `success`，不重试；通知点击：`MainActivity` 信号 → `FridgeApp` 跳食材库。
+- 通知总开关关闭：取消任务并 `cancel()` 旧通知；权限拒绝：Worker 返回 `success`，不重试。
+- 通知点击：`MainActivity` 信号 → `FridgeApp` 跳食材库。
 - Worker 不直接持有 Activity/ViewModel，也不直接查 DAO。
 
 ### 5.5 看板数据通道
@@ -359,6 +367,28 @@ class AndroidDashboardCsvExporter(
 - ViewModel 只在 `Dispatchers.IO` 调用 export；成功后先发 `Success(file)`，再由 UI 弹窗打开。
 - 失败类型：`Permission`、`StorageFull`、`Write`；ViewModel 转中文，统计状态不受影响。
 - 旧系统权限申请属于 UI 层：API<=28 由 `DashboardApp` 请求 WRITE；API 29+ 不申请存储权限。
+
+### 5.7 设置与 DataStore 链路
+
+```kotlin
+data class AppSettings(
+    val reminderDays: Int = 3,
+    val reminderHour: Int = 9,
+    val reminderMinute: Int = 0,
+    val notificationsEnabled: Boolean = true,
+)
+
+interface SettingsRepository {
+    val settings: Flow<AppSettings>
+    suspend fun update(transform: (AppSettings) -> AppSettings): AppSettings
+}
+```
+
+- `DefaultSettingsRepository` 用 `preferencesDataStore("fridge_settings")`；key 为 `reminder_days/reminder_hour/reminder_minute/notifications_enabled`。
+- `settings` 读取 `IOException` 时回退 `emptyPreferences()`；`update` 在 `Dispatchers.IO` 用 `edit` 原子写入，返回更新后的快照。
+- `AppSettings.normalized()` 收敛天数 1..7、小时 0..23、分钟 0..59；所有入口（读取/写入/Worker）共用。
+- 设置变更后 `SettingsViewModel` 调用 `ExpiryReminderScheduler.reschedule(settings)`；关闭通知时 `cancel()` 并清理旧通知。
+- 页面只依赖 Repository，不直接接触 DataStore key；保存成功用 `message` 状态位 + Snackbar 消费一次。
 
 ## 6. ViewModel 契约
 
@@ -664,6 +694,36 @@ class DashboardHomeViewModel(
 - `exportCsv()`：先防重入置 `isExporting=true`，重新调用 `repository.loadIngredients()`；空数据直接失败；否则在 `Dispatchers.IO` 调 `DashboardCsvFormatter` + `exporter.export`，写 `result`，最后复位。
 - 导出失败不改变 `uiState`；统计/饼图仍可浏览。UI 只消费 `exportState` 弹窗，不直接写文件。
 
+### 6.10 SettingsViewModel
+
+```kotlin
+data class SettingsUiState(
+    val content: UiState<AppSettings>,
+    val isSaving: Boolean = false,
+    val message: String? = null,
+    val messageIsError: Boolean = false,
+)
+
+class SettingsViewModel(
+    private val repository: SettingsRepository,
+    private val context: Context,
+) : ViewModel() {
+    val uiState: StateFlow<SettingsUiState>
+    fun retry()
+    fun update(transform: (AppSettings) -> AppSettings)
+    fun consumeMessage()
+
+    companion object {
+        fun factory(repository: SettingsRepository, context: Context): ViewModelProvider.Factory
+    }
+}
+```
+
+- `retrySignal.flatMapLatest { repository.settings }` → `UiState.Loading/Success/Error`；DataStore 默认值保证正常路径不出现空白。
+- `update()` 防重入置 `isSaving=true`；调用 Repository 后更新 `content`，写 `message=“设置已保存”`，再按通知开关调用 `reschedule`/`cancel`。
+- 保存失败写 `messageIsError=true` 与中文错误；UI 用 Snackbar 展示并消费。
+- 通知权限状态不是 DataStore 字段：`SettingsScreen` 用 `Context.hasNotificationAccess()` + `ON_RESUME` 刷新，避免把系统权限状态持久化。
+
 ## 7. 线程与生命周期
 
 | 操作 | 调度 |
@@ -672,6 +732,8 @@ class DashboardHomeViewModel(
 | Room `suspend` 写入 | Room 事务执行器；Repository 可包 `withContext(io)` |
 | Retrofit 网络请求 | `safeApiCall` 内 `withContext(Dispatchers.IO)` |
 | 多 DAO 事务 | `RoomDatabase.withTransaction { ... }` |
+| Preferences DataStore 读写 | `Dispatchers.IO`（`edit` + `withContext`） |
+| WorkManager 重排 | `WorkManager.enqueueUniquePeriodicWork`，不阻塞 UI |
 | CSV 写文件 | `Dispatchers.IO` |
 | ContentResolver 查询 | `Dispatchers.IO` |
 | 看板统计计算 | `Dispatchers.Default`（`DashboardStatsCalculator`） |
@@ -735,10 +797,17 @@ class FridgeApplication : Application() {
         )
     }
 
+    val settingsRepository: SettingsRepository by lazy {
+        DefaultSettingsRepository(this)
+    }
+
     override fun onCreate() {
         super.onCreate()
         ExpiryNotifications.createChannel(this)
-        ExpiryReminderScheduler.scheduleDaily(this)
+        applicationScope.launch {
+            val settings = settingsRepository.settings.first()
+            ExpiryReminderScheduler.ensureScheduled(this@FridgeApplication, settings)
+        }
     }
 }
 ```
@@ -771,20 +840,22 @@ ViewModel 由 `FridgeNavHost` 用 `viewModel(factory = ...)` 创建，Repository
 - `DefaultRecipeRepository`：事务、菜谱/食材关联维护、校验、异常包装。
 - `DefaultOnlineRecipeRepository` + `NetworkResult`：TheMealDB 搜索/详情、异常文案、保存到本地。
 - `domain/matching/RecipeMatcher`：完全可制作/缺 1 种/缺多种分级、稳定排序、已有/缺少名称。
-- `RecipeMatcherTest`：5 个纯 JVM 用例通过（含空菜谱排序）。
-- 食材 3 个 ViewModel、本地菜谱 3 个 ViewModel、在线菜谱 2 个 ViewModel。
-- 食材/菜谱列表、详情、新增/编辑页面接入 Room 与四态 UI；在线搜索/详情接入网络与三 Tab 导航。
+- `RecipeMatcherTest`：6 个纯 JVM 用例通过（含空菜谱排序与名称兜底）。
+- 食材 3 个 ViewModel、本地菜谱 3 个 ViewModel、在线菜谱 2 个 ViewModel、设置 1 个 ViewModel。
+- 食材/菜谱列表、详情、新增/编辑页面接入 Room 与四态 UI；在线搜索/详情接入网络与三 Tab 导航；设置/关于页接入 DataStore。
 - 菜谱列表“全部/推荐”筛选、等级徽标、已备齐数量、缺少食材；详情食材已有/缺少高亮。
 - 菜谱新增/编辑共用 `RecipeForm`，支持动态食材清单与多行做法；在线菜谱保存复用同一事务。
-- `ExpiryCalculator` + `ExpiryCheckWorker` + `ExpiryReminderScheduler`：每日 09:00 检查、0..3 天临期、合并通知、点击跳食材库。
+- `ExpiryCalculator` + `ExpiryCheckWorker` + `ExpiryReminderScheduler`：默认 09:00、用户可配置提前天数/时间、合并通知、点击跳食材库；设置变更 REPLACE、关闭通知取消。
+- `SettingsRepository` + `AppSettings` + `SettingsViewModel`：Preferences DataStore 持久化四项配置，IO 协程读写，保存后重排任务。
+- `SettingsScreen` / `AboutScreen`：权限状态/去设置、天数 stepper、TimePickerDialog、通知 Switch、版本与功能说明。
 - `NotificationPermissionBanner`：Android 13+ 说明/申请/拒绝/永久拒绝“去设置”，未授权仍可查看状态。
-- `ExpiryCalculatorTest` 3 个、`ExpiryReminderSchedulerTest` 3 个；总计 11 个 JVM 单测通过。
+- `AppSettingsTest` 3 个、`ExpiryCalculatorTest` 5 个、`ExpiryReminderSchedulerTest` 5 个、`RecipeMatcherTest` 6 个，主 App 共 19 个 JVM 单测通过。
 - 主 App `IngredientContentProvider`：signature 读写权限、只读 query、列白名单、MatrixCursor 输出。
 - 看板 `DashboardHomeViewModel` + `DashboardRepository` + `IngredientProviderClient`：ContentResolver 数据通道、四态、未安装/权限/查询错误降级。
 - `DashboardStatsCalculator`：总条目、0..3 天临期、已过期、分类条目数；`DashboardStatsCalculatorTest` 3 个 JVM 用例通过。
 - 看板三张指标卡 + MPAndroidChart 分类饼图。
 - 看板 CSV 导出：`DashboardCsvFormatter`、`AndroidDashboardCsvExporter`、MediaStore/旧版文件、FileProvider、权限/失败弹窗；`DashboardCsvFormatterTest` 5 个 JVM 用例通过。
-- 看板单测共 8 个（统计 3 + CSV 5），主 App 11 个，全项目 19 个 JVM 单测通过。
+- 看板单测共 8 个（统计 3 + CSV 5），主 App 19 个，全项目 27 个 JVM 单测通过。
 
 未完成（下一轮）：
 

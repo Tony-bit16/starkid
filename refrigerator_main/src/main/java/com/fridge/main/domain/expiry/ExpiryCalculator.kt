@@ -38,7 +38,16 @@ object ExpiryCalculator {
         expiryDate(storedAt = storedAt, shelfLifeDays = shelfLifeDays, zoneId = zoneId),
     ).toInt()
 
-    fun isExpiringSoon(daysLeft: Int): Boolean = daysLeft in 0..EXPIRING_SOON_DAYS
+    /**
+     * 是否处于提醒窗口内。
+     *
+     * 默认沿用产品定义的 3 天；设置页可传入用户选择的提前天数。
+     * 过期（负数）不在这里返回 true，避免把“已过期”当成“即将过期”重复提醒。
+     */
+    fun isExpiringSoon(
+        daysLeft: Int,
+        warningDays: Int = EXPIRING_SOON_DAYS,
+    ): Boolean = daysLeft in 0..warningDays.coerceAtLeast(0)
 
     fun isExpired(daysLeft: Int): Boolean = daysLeft < 0
 }

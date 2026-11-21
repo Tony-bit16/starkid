@@ -9,8 +9,15 @@ import com.fridge.main.data.repository.DefaultRecipeRepository
 import com.fridge.main.data.repository.IngredientRepository
 import com.fridge.main.data.repository.OnlineRecipeRepository
 import com.fridge.main.data.repository.RecipeRepository
+import com.fridge.main.data.settings.DefaultSettingsRepository
+import com.fridge.main.data.settings.SettingsRepository
 import com.fridge.main.notification.ExpiryNotifications
 import com.fridge.main.work.ExpiryReminderScheduler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
  * 应用级容器。
@@ -23,11 +30,26 @@ import com.fridge.main.work.ExpiryReminderScheduler
  */
 class FridgeApplication : Application() {
 
+    /**
+     * 进程级协程作用域：只做启动时的轻量装配，不持有页面引用。
+     * 应用进程结束时随进程回收，不需要手动取消。
+     */
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     override fun onCreate() {
         super.onCreate()
         // 渠道可重复创建；调度使用唯一周期任务，冷启动不会叠加多个 Worker。
         ExpiryNotifications.createChannel(this)
-        ExpiryReminderScheduler.schedule(this)
+        // DataStore 读取是 IO，放到后台；读到首个配置后再决定是否/何时调度。
+        applicationScope.launch {
+            val settings = settingsRepository.settings.first()
+            ExpiryReminderScheduler.ensureScheduled(this@FridgeApplication, settings)
+        }
+    }
+
+    /** 用户配置仓库，全 App 单实例；设置页与 Worker 共用同一份 DataStore。 */
+    val settingsRepository: SettingsRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        DefaultSettingsRepository(this)
     }
 
     val database: FridgeDatabase by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {

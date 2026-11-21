@@ -74,6 +74,8 @@ fun FridgeApp(openIngredientsSignal: Int = 0) {
         Routes.RECIPE_DETAIL -> "菜谱详情"
         Routes.ONLINE_RECIPES -> "在线搜索"
         Routes.ONLINE_RECIPE_DETAIL -> "在线菜谱详情"
+        Routes.SETTINGS -> "设置"
+        Routes.ABOUT -> "关于"
         else -> "冰箱管家"
     }
 
@@ -95,6 +97,9 @@ fun FridgeApp(openIngredientsSignal: Int = 0) {
                 },
                 actions = {
                     if (isIngredients) {
+                        TextButton(onClick = { navController.safeNavigate(Routes.SETTINGS) }) {
+                            Text("设置")
+                        }
                         TextButton(onClick = { navController.safeNavigate(Routes.ADD_INGREDIENT) }) {
                             Text("新增")
                         }

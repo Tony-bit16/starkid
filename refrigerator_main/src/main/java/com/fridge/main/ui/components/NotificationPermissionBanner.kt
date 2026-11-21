@@ -186,7 +186,7 @@ fun NotificationPermissionBanner(
                 onDismissRequest = { showIntro = false },
                 title = { Text("开启保质期提醒") },
                 text = {
-                    Text("允许通知后，食材到期前 3 天会收到一条合并提醒。拒绝也不影响查看和管理食材。")
+                    Text("允许通知后，食材到期前会收到一条合并提醒。提醒天数可在设置页调整。拒绝也不影响查看和管理食材。")
                 },
                 confirmButton = {
                     TextButton(
@@ -267,7 +267,7 @@ private fun Context.findActivity(): Activity? {
  * Android 13+ 先检查运行时权限，再统一检查 App/渠道总开关；
  * 任一关闭都视为不可用，仅展示提示条，不抛异常。
  */
-private fun Context.hasNotificationAccess(): Boolean {
+internal fun Context.hasNotificationAccess(): Boolean {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         val granted = ContextCompat.checkSelfPermission(
             this,

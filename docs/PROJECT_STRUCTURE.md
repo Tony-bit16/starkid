@@ -17,7 +17,7 @@ Fridge/
 │  ├─ ARCHITECTURE.md                 # MVVM、数据边界、Provider 契约、测试策略
 │  ├─ DATA_MODEL.md                   # v2 表结构、ER 图、迁移与匹配口径
 │  ├─ MVVM_LAYER_DESIGN.md            # Entity/Dao/Repository/ViewModel 契约
-│  ├─ UI_PROTOTYPE.md                 # 10 个页面布局、交互、状态与跳转
+│  ├─ UI_PROTOTYPE.md                 # 12 个页面布局、交互、状态与跳转
 │  └─ PROJECT_STRUCTURE.md            # 本文件
 │
 ├─ refrigerator_main/                 # 主 App：冰箱管家
@@ -58,18 +58,21 @@ Fridge/
 │     │  │  │     ├─ MealDto.kt       # strIngredient1..20 / strMeasure1..20
 │     │  │  │     ├─ MealMapper.kt    # DTO → OnlineRecipe → RecipeDraft
 │     │  │  │     └─ OnlineRecipe.kt  # 在线菜谱领域模型
-│     │  │  └─ repository/
-│     │  │     ├─ IngredientRepository.kt # 契约 + IngredientDraft
-│     │  │     ├─ DefaultIngredientRepository.kt # Room 事务、校验、异常包装
-│     │  │     ├─ RecipeRepository.kt     # 契约 + RecipeDraft/匹配模型
-│     │  │     ├─ DefaultRecipeRepository.kt # 菜谱事务、关联维护、校验、异常包装
-│     │  │     ├─ OnlineRecipeRepository.kt # 在线搜索/详情/保存契约
-│     │  │     └─ DefaultOnlineRecipeRepository.kt # 网络调用 + 保存到本地
+│     │  │  ├─ repository/
+│     │  │  │  ├─ IngredientRepository.kt # 契约 + IngredientDraft
+│     │  │  │  ├─ DefaultIngredientRepository.kt # Room 事务、校验、异常包装
+│     │  │  │  ├─ RecipeRepository.kt     # 契约 + RecipeDraft/匹配模型
+│     │  │  │  ├─ DefaultRecipeRepository.kt # 菜谱事务、关联维护、校验、异常包装
+│     │  │  │  ├─ OnlineRecipeRepository.kt # 在线搜索/详情/保存契约
+│     │  │  │  └─ DefaultOnlineRecipeRepository.kt # 网络调用 + 保存到本地
+│     │  │  └─ settings/
+│     │  │     ├─ AppSettings.kt        # 提醒天数/时间/通知开关值对象
+│     │  │     └─ SettingsRepository.kt # Preferences DataStore 契约与实现
 │     │  ├─ notification/
 │     │  │  └─ ExpiryNotifications.kt # 渠道、合并通知、PendingIntent、canPost()
 │     │  ├─ work/
-│     │  │  ├─ ExpiryCheckWorker.kt   # CoroutineWorker：查库存、筛选 0..3 天、发通知
-│     │  │  └─ ExpiryReminderScheduler.kt # 每日 09:00 唯一周期任务
+│     │  │  ├─ ExpiryCheckWorker.kt   # CoroutineWorker：读设置、查库存、按 warningDays 筛选、发通知
+│     │  │  └─ ExpiryReminderScheduler.kt # 唯一周期任务；默认 09:00，可配置并重排
 │     │  ├─ provider/
 │     │  │  ├─ IngredientProviderContract.kt # authority/权限/URI/列契约
 │     │  │  └─ IngredientContentProvider.kt # 只读 query，MatrixCursor 输出食材
@@ -91,7 +94,7 @@ Fridge/
 │     │     │  └─ FreshnessStatus.kt   # 新鲜/临期/过期状态
 │     │     ├─ navigation/
 │     │     │  ├─ Routes.kt           # 路由常量与 id 构造函数
-│     │     │  └─ FridgeNavHost.kt    # 8 个目的地；食材/菜谱/在线页注入 ViewModel
+│     │     │  └─ FridgeNavHost.kt    # 10 个目的地；食材/菜谱/在线/设置页注入依赖
 │     │     ├─ screens/
 │     │     │  ├─ ingredients/
 │     │     │  │  ├─ IngredientListScreen.kt
@@ -103,22 +106,26 @@ Fridge/
 │     │     │  │  ├─ IngredientForm.kt
 │     │     │  │  ├─ IngredientFormState.kt
 │     │     │  │  └─ IngredientError.kt
-│     │     │  └─ recipes/
-│     │     │     ├─ RecipeListScreen.kt
-│     │     │     ├─ RecipeListViewModel.kt
-│     │     │     ├─ RecipeDetailScreen.kt
-│     │     │     ├─ RecipeDetailViewModel.kt
-│     │     │     ├─ AddRecipeScreen.kt
-│     │     │     ├─ AddRecipeViewModel.kt
-│     │     │     ├─ RecipeForm.kt
-│     │     │     ├─ RecipeFormState.kt
-│     │     │     ├─ RecipeError.kt
-│     │     │     ├─ RecipeMatchMapper.kt # RecipeWithIngredients → MatchableRecipe
-│     │     │     ├─ RecipeMatchComponents.kt # 匹配等级徽标
-│     │     │     ├─ OnlineRecipeListScreen.kt
-│     │     │     ├─ OnlineRecipeListViewModel.kt
-│     │     │     ├─ OnlineRecipeDetailScreen.kt
-│     │     │     └─ OnlineRecipeDetailViewModel.kt
+│     │     │  ├─ recipes/
+│     │     │  │  ├─ RecipeListScreen.kt
+│     │     │  │  ├─ RecipeListViewModel.kt
+│     │     │  │  ├─ RecipeDetailScreen.kt
+│     │     │  │  ├─ RecipeDetailViewModel.kt
+│     │     │  │  ├─ AddRecipeScreen.kt
+│     │     │  │  ├─ AddRecipeViewModel.kt
+│     │     │  │  ├─ RecipeForm.kt
+│     │     │  │  ├─ RecipeFormState.kt
+│     │     │  │  ├─ RecipeError.kt
+│     │     │  │  ├─ RecipeMatchMapper.kt # RecipeWithIngredients → MatchableRecipe
+│     │     │  │  ├─ RecipeMatchComponents.kt # 匹配等级徽标
+│     │     │  │  ├─ OnlineRecipeListScreen.kt
+│     │     │  │  ├─ OnlineRecipeListViewModel.kt
+│     │     │  │  ├─ OnlineRecipeDetailScreen.kt
+│     │     │  │  └─ OnlineRecipeDetailViewModel.kt
+│     │     │  └─ settings/
+│     │     │     ├─ SettingsScreen.kt     # 通知权限/天数/时间/开关/关于
+│     │     │     ├─ SettingsViewModel.kt  # DataStore 读取、保存、重排任务
+│     │     │     └─ AboutScreen.kt        # 版本、功能、数据边界
 │     │     └─ theme/
 │     │        └─ Theme.kt            # 绿/橙语义色，固定配色
 │     └─ res/
@@ -192,17 +199,19 @@ Fridge/
   - `recipes/detail/{recipeId}`：本地菜谱详情。
   - `recipes/online`：在线搜索（一级）。
   - `recipes/online/{mealId}`：在线菜谱详情。
-- `FridgeApp.kt`：只负责 Scaffold、根 Snackbar、底部 3 个一级 Tab 与导航外壳，不查询数据库；详情/新增显示返回；所有导航走 safe 扩展函数。
+  - `settings`：设置（提前天数/时间/通知开关/权限/关于）。
+  - `about`：关于页。
+- `FridgeApp.kt`：只负责 Scaffold、根 Snackbar、底部 3 个一级 Tab 与导航外壳，不查询数据库；食材页顶栏提供“设置”；详情/新增显示返回；所有导航走 safe 扩展函数。
 - `ScreenStateContent.kt`：把 `UiState` 分发到通用加载/空/错误布局，成功态交给页面内容。
 - `StateLayouts.kt`：`LoadingStateLayout`、`EmptyStateLayout`、`ErrorStateLayout`，所有数据页面复用。
 - `AppErrorHandler.kt`：页面跳转等可恢复 UI 异常的错误总线；`safeNavigate`/`safePopBackStack` 捕获导航异常，根 Scaffold Snackbar 展示。
 - `RefreshableContent.kt`：统一的 Material3 `PullToRefreshBox` 包装，仅用于已有内容的列表。
-- `FridgeNavHost.kt`：8 个目的地；食材/菜谱/在线页分别创建 ViewModel，并从 `FridgeApplication` 注入 Repository。
-- `domain/matching/RecipeMatcher.kt`：纯 Kotlin、无 Android/Room 依赖；输入 `MatchableRecipe` 与库存 `typeId` 集合，输出匹配等级/已有/缺少；单测在 `src/test/java/.../RecipeMatcherTest.kt`。
-- `domain/expiry/ExpiryCalculator.kt`：纯函数计算到期日/剩余天数，0..3 天临期；UI 与 Worker 共用，单测在 `src/test/java/.../ExpiryCalculatorTest.kt`。
+- `FridgeNavHost.kt`：10 个目的地；食材/菜谱/在线/设置页分别创建 ViewModel，并从 `FridgeApplication` 注入 Repository。
+- `domain/matching/RecipeMatcher.kt`：纯 Kotlin、无 Android/Room 依赖；输入 `MatchableRecipe`、库存 `typeId` 与可选规范化名称集合，优先 typeId、同名不同 typeId 时名称兜底；单测在 `src/test/java/.../RecipeMatcherTest.kt`。
+- `domain/expiry/ExpiryCalculator.kt`：纯函数计算到期日/剩余天数，`0..warningDays`（默认 3）天临期；UI 与 Worker 共用，单测在 `src/test/java/.../ExpiryCalculatorTest.kt`。
 - `notification/ExpiryNotifications.kt`：创建渠道、合并通知、`PendingIntent` 跳食材库、`canPost()` 权限/渠道检查；不持有 Activity。
-- `work/ExpiryCheckWorker.kt`：`CoroutineWorker` + `Dispatchers.IO` 查询库存，筛选临期并调用通知；无权限/无临期/异常均安全结束。
-- `work/ExpiryReminderScheduler.kt`：唯一周期任务，每日 09:00，`KEEP` 策略；初始延迟测试在 `ExpiryReminderSchedulerTest.kt`。
+- `work/ExpiryCheckWorker.kt`：`CoroutineWorker` + `Dispatchers.IO` 读取 DataStore 设置、查询库存，按 warningDays 筛选临期并调用通知；关闭通知/无权限/无临期/异常均安全结束。
+- `work/ExpiryReminderScheduler.kt`：唯一周期任务；启动用 `KEEP`，设置变更用 `REPLACE`，关闭通知时 `cancel`；默认 09:00，时间可配置；初始延迟测试在 `ExpiryReminderSchedulerTest.kt`。
 - `ui/components/NotificationPermissionBanner.kt`：首次说明、系统申请、拒绝/永久拒绝提示、`ON_RESUME` 刷新。
 - `MainActivity.kt`：`singleTop`；解析 `EXTRA_OPEN_INGREDIENTS`，通过信号让 `FridgeApp` 跳转食材库。
 - `provider/IngredientProviderContract.kt`：跨 App 的唯一契约；authority、读写权限、URI、列名集中定义，看板保留同值副本。
@@ -214,6 +223,8 @@ Fridge/
 - `data/local/entity/RecipeIngredient.kt`：复合主键 `(recipe_id, type_id)`，双外键；表达菜谱-品类多对多。
 - `data/local/relation/`：`IngredientWithType`、`RecipeIngredientWithType`、`RecipeWithIngredients`，用于一次性取回关联数据。
 - `data/repository/`：`IngredientRepository`、`RecipeRepository`、`OnlineRecipeRepository` 为契约；三个 `Default*Repository` 负责事务、校验、品类复用、网络异常与保存映射。
+- `data/settings/`：`AppSettings` 值对象与 `SettingsRepository`；Preferences DataStore `fridge_settings` 持久化提醒天数/时间/通知开关，读写走 IO。
+- `ui/screens/settings/`：`SettingsScreen`（权限卡、天数 stepper、时间选择器、通知开关、关于入口、Snackbar）与 `SettingsViewModel`（DataStore Flow、保存、重排任务）；`AboutScreen` 展示版本与功能边界。
 - `ui/model/IngredientUiModel.kt`：Entity → UI 的日期/数量/剩余天数转换，Composable 不直接做时间计算。
 - `ui/model/RecipeUiModel.kt`：菜谱与所需食材的展示模型，拍平 `RecipeWithIngredients` 并按食材名排序。
 - `ui/screens/ingredients/`：列表、详情、新增三套 Screen + ViewModel，共用 `IngredientForm`/`IngredientFormState`；`IngredientError` 做统一中文错误映射。
@@ -228,14 +239,15 @@ Fridge/
 ### 看板
 
 - `data/provider/IngredientProviderContract.kt`：与主 App 同 authority/权限/URI/列，注释要求两端同步修改。
-- `data/provider/IngredientProviderClient.kt`：`resolveContentProvider` 判主 App 是否安装，`ContentResolver.query` 读取并映射 `DashboardIngredient`；异常转 `DashboardDataException`。
+- `data/provider/IngredientProviderClient.kt`：`resolveContentProvider` 判主 App 是否安装，`ContentResolver.query` 读取并映射 `DashboardIngredient`；同时用 `ContentObserver` + `callbackFlow` 暴露 `observeIngredients()`，主 App 写入后自动刷新。
 - `data/repository/DashboardRepository.kt`：只读转发，页面不直接使用 `ContentResolver`。
 - `domain/stats/DashboardStatsCalculator.kt`：纯 Kotlin 统计；总条目、0..3 天临期、已过期、分类条目数；不依赖 Android。
 - `DashboardHomeViewModel.kt`：`retrySignal` 触发加载，输出 Loading/Empty/Error/Success；在 `Dispatchers.Default` 调用统计器；`factory(context)` 组装 Client/Repository。
 - `DashboardHomeScreen.kt`：三张指标卡、分类饼图、数据来源、食材明细与导出入口；窄屏自适应图表高度。
 - `DashboardCharts.kt`：MPAndroidChart 饼图（分类 + 条目数标签）与预留折线图封装。
-- `DashboardExportScreen.kt`：导出内容/字段/文件名说明；保存按钮为下一阶段骨架。
-- `DashboardStatsCalculatorTest.kt`：JVM 单测覆盖统计与边界。
+- `data/export/DashboardCsvExporter.kt`：cache 副本 + MediaStore（API 29+）/旧版公共 Downloads（24–28）+ FileProvider URI；异常映射权限/空间/写入。
+- `DashboardExportScreen.kt`：导出内容、字段、编码、文件名、保存位置与权限说明；实际导出由主页/顶栏触发。
+- `DashboardStatsCalculatorTest.kt`：JVM 单测覆盖统计与边界；`DashboardCsvFormatterTest.kt` 覆盖 BOM/CRLF/转义/状态/数量格式。
 - 看板没有 Room、没有 Entity；数据边界只有 ContentResolver。
 
 ## 构建产物位置

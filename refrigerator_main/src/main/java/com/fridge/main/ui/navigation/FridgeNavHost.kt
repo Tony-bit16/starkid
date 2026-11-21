@@ -31,6 +31,9 @@ import com.fridge.main.ui.screens.recipes.RecipeDetailScreen
 import com.fridge.main.ui.screens.recipes.RecipeDetailViewModel
 import com.fridge.main.ui.screens.recipes.RecipeListScreen
 import com.fridge.main.ui.screens.recipes.RecipeListViewModel
+import com.fridge.main.ui.screens.settings.AboutScreen
+import com.fridge.main.ui.screens.settings.SettingsScreen
+import com.fridge.main.ui.screens.settings.SettingsViewModel
 
 /**
  * 主 App 导航图。
@@ -47,6 +50,7 @@ fun FridgeNavHost(
     val ingredientRepository = remember(application) { application.ingredientRepository }
     val recipeRepository = remember(application) { application.recipeRepository }
     val onlineRecipeRepository = remember(application) { application.onlineRecipeRepository }
+    val settingsRepository = remember(application) { application.settingsRepository }
 
     NavHost(
         navController = navController,
@@ -202,6 +206,24 @@ fun FridgeNavHost(
                 onDismissErrorDialog = viewModel::dismissErrorDialog,
                 onClearMessage = viewModel::clearMessage,
             )
+        }
+
+        composable(route = Routes.SETTINGS) {
+            val viewModel: SettingsViewModel = viewModel(
+                factory = SettingsViewModel.factory(settingsRepository, application),
+            )
+            val state by viewModel.uiState.collectAsStateWithLifecycle()
+            SettingsScreen(
+                uiState = state,
+                onRetry = viewModel::retry,
+                onUpdate = viewModel::update,
+                onAboutClick = { navController.safeNavigate(Routes.ABOUT) },
+                onConsumeMessage = viewModel::consumeMessage,
+            )
+        }
+
+        composable(route = Routes.ABOUT) {
+            AboutScreen()
         }
     }
 }

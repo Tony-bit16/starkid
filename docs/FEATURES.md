@@ -26,12 +26,18 @@
 - 网络失败弹窗 + 错误页重试，本地菜谱、看板、手动新增均不受影响。
 
 ### 4. 保质期提醒
-- WorkManager 每日 09:00 巡检；`ExpiryCalculator` 按本地日历日计算，0..3 天为临期。
+- WorkManager 每日巡检，默认 09:00；可在设置页调整提前 1–7 天与每日时间。
+- `ExpiryCalculator` 按本地日历日计算，`0..warningDays` 为临期；修改设置后下一次任务自动重排。
 - 多条临期食材合并为一条通知，点击跳转食材库；无临期时自动取消旧通知。
 - Android 13+ 通知权限说明、系统申请、拒绝/永久拒绝降级与“去设置”入口。
 - 无通知权限时仍可在列表查看三色状态。
 
-### 5. 基础体验与数据共享
+### 5. 设置与关于
+- 食材库顶部“设置”入口：通知权限状态/去设置、提前提醒天数、每日提醒时间、过期通知开关、关于入口。
+- Preferences DataStore `fridge_settings` 统一持久化；设置页读取加载态、保存 Snackbar、读取失败重试。
+- 关于页展示应用名、版本、功能说明、数据/隐私边界与健康免责声明。
+
+### 6. 基础体验与数据共享
 - 底部导航：食材库 / 菜谱库 / 在线搜索；列表 → 详情导航。
 - 食材、菜谱、在线结果三个列表支持下拉刷新，失败保留旧内容。
 - 统一 `AppErrorHandler` 与 safe 导航：页面跳转异常进入根 Snackbar，数据库/网络异常进入页面错误态。
@@ -51,10 +57,10 @@
 
 ## 三、工程与质量
 
-- Kotlin + Jetpack Compose + Navigation + ViewModel + Room + Retrofit/OkHttp + WorkManager + MPAndroidChart。
+- Kotlin + Jetpack Compose + Navigation + ViewModel + Room + Retrofit/OkHttp + WorkManager + Preferences DataStore + MPAndroidChart。
 - MVVM 分层：Entity / Dao / Repository / ViewModel / UI，Domain 纯算法独立。
 - 主线程不做数据库、网络、文件 IO；统计与匹配切到 `Dispatchers.Default` / `Dispatchers.IO`。
-- 单元测试覆盖：食材匹配、保质期计算、调度时间、看板统计、CSV 格式化与编码。
+- 单元测试覆盖：食材匹配、保质期计算、调度时间、设置归一化、看板统计、CSV 格式化与编码。
 - 双 App 共用同一套绿/橙语义色、6/10/14/18/24dp 圆角与卡片阴影规范。
 
 ## 四、当前边界
@@ -62,4 +68,4 @@
 - 匹配只看“品类是否有库存”，不判断数量是否足够，也不优先消耗临期食材。
 - 在线菜谱依赖 TheMealDB 英文接口，暂无中文菜谱源、图片、收藏与分页。
 - 看板暂无趋势折线图、按日期范围导出。
-- 通知为每日一次固定巡检，不是精确到分钟的到期闹钟。
+- 通知为每日一次巡检（时间可配置），受系统省电策略影响，不是精确到分钟的到期闹钟。
