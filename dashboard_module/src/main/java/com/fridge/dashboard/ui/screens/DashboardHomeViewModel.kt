@@ -6,14 +6,13 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.fridge.dashboard.DashboardApplication
 import com.fridge.dashboard.data.export.AndroidDashboardCsvExporter
 import com.fridge.dashboard.data.export.CsvExportException
 import com.fridge.dashboard.data.export.DashboardCsvExporter
 import com.fridge.dashboard.data.model.DashboardIngredient
 import com.fridge.dashboard.data.model.toDashboardUserMessage
-import com.fridge.dashboard.data.provider.IngredientProviderClient
 import com.fridge.dashboard.data.repository.DashboardRepository
-import com.fridge.dashboard.data.repository.DefaultDashboardRepository
 import com.fridge.dashboard.domain.stats.DashboardStatsCalculator
 import com.fridge.dashboard.ui.model.DashboardExportResult
 import com.fridge.dashboard.ui.model.DashboardExportUiState
@@ -21,6 +20,7 @@ import com.fridge.dashboard.ui.model.DashboardHomeContent
 import com.fridge.dashboard.ui.model.DashboardUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -49,15 +49,26 @@ class DashboardHomeViewModel(
 
     private val retrySignal = MutableStateFlow(0)
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing = _isRefreshing.asStateFlow()
+
     private val _exportState = MutableStateFlow(DashboardExportUiState())
     val exportState = _exportState.asStateFlow()
 
     val state = retrySignal
         .flatMapLatest {
             repository.observeIngredients()
-                .map { result -> result.toUiState() }
-                .onStart { emit(DashboardUiState.Loading) }
+                .map { result ->
+                    // 结果到达后至少让手动刷新进度可见一小段时间，避免“刚点就结束”。
+                    if (_isRefreshing.value) delay(MIN_REFRESH_MS)
+                    _isRefreshing.value = false
+                    result.toUiState()
+                }
+                // 手动刷新时保留当前卡片/图表，只显示顶部进度；首次加载/错误重试才切全屏 Loading。
+                .onStart { if (!_isRefreshing.value) emit(DashboardUiState.Loading) }
                 .catch { error ->
+                    if (_isRefreshing.value) delay(MIN_REFRESH_MS)
+                    _isRefreshing.value = false
                     emit(
                         DashboardUiState.Error(
                             title = "读取失败",
@@ -97,7 +108,21 @@ class DashboardHomeViewModel(
         },
     )
 
+    /**
+     * 手动刷新：清空缓存并重新订阅。
+     *
+     * 强制走 Provider 查询，确保统计卡、饼图和趋势图都基于最新数据。
+     */
+    fun refresh() {
+        if (_isRefreshing.value) return
+        repository.invalidateCache()
+        _isRefreshing.value = true
+        retrySignal.update { it + 1 }
+    }
+
+    /** 错误页的重试同样绕过缓存，避免反复读到同一个失败快照。 */
     fun retry() {
+        repository.invalidateCache()
         retrySignal.update { it + 1 }
     }
 
@@ -112,7 +137,7 @@ class DashboardHomeViewModel(
         _exportState.value = DashboardExportUiState(isExporting = true)
 
         viewModelScope.launch {
-            val result = repository.loadIngredients().fold(
+            val result = repository.loadIngredients(forceRefresh = true).fold(
                 onSuccess = { ingredients ->
                     if (ingredients.isEmpty()) {
                         DashboardExportResult.Failure("没有可导出的食材，请先在主 App 中添加食材。")
@@ -158,12 +183,15 @@ class DashboardHomeViewModel(
     }
 
     companion object {
+        /** 手动刷新的最短进度展示时间，避免本地 Provider 查询过快导致没有反馈。 */
+        private const val MIN_REFRESH_MS = 450L
+
         fun factory(context: Context): ViewModelProvider.Factory = viewModelFactory {
             initializer {
+                val app = context.applicationContext as DashboardApplication
                 DashboardHomeViewModel(
-                    repository = DefaultDashboardRepository(
-                        client = IngredientProviderClient(context.applicationContext),
-                    ),
+                    // Application 级 Repository 让 60 秒缓存在 Activity 重建后仍然有效。
+                    repository = app.dashboardRepository,
                     exporter = AndroidDashboardCsvExporter(context.applicationContext),
                 )
             }

@@ -13,7 +13,11 @@ data class CategoryStat(
     val count: Int,
 )
 
-/** 某一天的临期食材数量，保留给后续趋势图使用。 */
+/**
+ * 未来 7 天中某一天的到期食材数量。
+ *
+ * label 使用 `M/d`，例如 `11/15`；count 为该到期日的库存条目数。
+ */
 data class TrendPoint(
     val label: String,
     val count: Int,
@@ -25,6 +29,8 @@ data class DashboardStats(
     val expiringCount: Int,
     val expiredCount: Int,
     val categories: List<CategoryStat>,
+    /** 今天起未来 7 天（含今天）的每日到期条目数，固定 7 个点。 */
+    val trend: List<TrendPoint>,
 )
 
 /** 成功态同时携带统计结果与原始明细，避免页面重复计算。 */

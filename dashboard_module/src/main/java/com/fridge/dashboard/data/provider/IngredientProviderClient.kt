@@ -16,8 +16,18 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+
+/**
+ * 看板依赖的最小数据源契约。
+ *
+ * 抽成接口后，缓存/刷新逻辑可以用内存假数据做单元测试，不需要真实 ContentProvider。
+ */
+interface DashboardIngredientSource {
+    suspend fun loadIngredients(): Result<List<DashboardIngredient>>
+
+    fun observeIngredientChanges(): Flow<Unit>
+}
 
 /**
  * 主 App 食材 Provider 的只读客户端。
@@ -26,22 +36,18 @@ import kotlinx.coroutines.withContext
  */
 class IngredientProviderClient(
     private val context: Context,
-) {
+) : DashboardIngredientSource {
 
     /**
-     * 持续观察主 App 的食材表。
+     * 观察主 App 食材表的变化信号，不在这里做首次查询。
      *
-     * 主 App Provider 在 Room 的 `ingredients` 表失效时会 `notifyChange`；
-     * 这里通过 ContentObserver 接收通知并重新查询，解决“看板停留在前台时
-     * 主 App 新增食材，看板必须手动重试才更新”的同步延迟。
-     *
-     * 首次订阅先主动查询一次；失败仍以 [Result] 发射，交给 ViewModel 映射为
-     * 错误态，不在这里抛异常。
+     * 首次加载/缓存命中由 Repository 决定；主 App Provider 在 Room 的
+     * `ingredients` 表失效时会 `notifyChange`，这里只负责把变化转成 Flow。
+     * 高频写入用 conflate 合并，避免排队多次重复查询。
      */
-    fun observeIngredients(): Flow<Result<List<DashboardIngredient>>> = callbackFlow {
+    override fun observeIngredientChanges(): Flow<Unit> = callbackFlow {
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
-                // 高频写入时用 conflate 合并，避免排队多次重复查询。
                 trySend(Unit)
             }
         }
@@ -50,13 +56,12 @@ class IngredientProviderClient(
             true,
             observer,
         )
-        trySend(Unit)
         awaitClose {
             context.contentResolver.unregisterContentObserver(observer)
         }
-    }.conflate().map { loadIngredients() }
+    }.conflate()
 
-    suspend fun loadIngredients(): Result<List<DashboardIngredient>> = withContext(Dispatchers.IO) {
+    override suspend fun loadIngredients(): Result<List<DashboardIngredient>> = withContext(Dispatchers.IO) {
         try {
             val providerInfo = context.packageManager.resolveContentProvider(
                 IngredientProviderContract.AUTHORITY,

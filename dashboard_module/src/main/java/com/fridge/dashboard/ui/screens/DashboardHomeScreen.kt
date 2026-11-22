@@ -1,6 +1,7 @@
 package com.fridge.dashboard.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,15 +19,19 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.fridge.dashboard.data.model.DashboardIngredient
 import com.fridge.dashboard.data.provider.IngredientProviderContract
 import com.fridge.dashboard.ui.charts.CategoryPieChart
+import com.fridge.dashboard.ui.charts.ExpiringTrendChart
 import com.fridge.dashboard.ui.components.ChartCard
 import com.fridge.dashboard.ui.components.DashboardDemoBanner
 import com.fridge.dashboard.ui.components.DashboardStateContent
@@ -45,6 +50,7 @@ import com.fridge.dashboard.ui.model.DashboardUiState
 fun DashboardHomeScreen(
     state: DashboardUiState,
     onRetry: () -> Unit,
+    isRefreshing: Boolean,
     isExporting: Boolean,
     onExportClick: () -> Unit,
     onOpenExportPage: () -> Unit,
@@ -54,6 +60,9 @@ fun DashboardHomeScreen(
         DashboardDemoBanner(
             text = "数据来自主 App 的只读 ContentProvider · 分类占比按库存条目统计；CSV 支持导出",
         )
+        if (isRefreshing) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
         DashboardStateContent(
             state = state,
             onRetry = onRetry,
@@ -84,6 +93,7 @@ private fun DashboardContent(
         item { StatsRow(stats = content.stats) }
         item { StatsNote() }
         item { CategoryChartCard(stats = content.stats) }
+        item { ExpiryTrendCard(stats = content.stats) }
         item { DataSourceCard() }
         item { SectionTitle("食材明细") }
 
@@ -122,7 +132,7 @@ private fun DashboardContent(
 
         item {
             Text(
-                text = "CSV 会保存到公共下载目录（Downloads/Fridge）；趋势折线图在后续阶段接入。",
+                text = "CSV 会保存到公共下载目录（Downloads/Fridge）；数据刷新后图表与趋势会同步更新。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -181,6 +191,55 @@ private fun CategoryChartCard(stats: DashboardStats) {
                     .fillMaxWidth()
                     .height(chartHeight),
             )
+        }
+    }
+}
+
+@Composable
+private fun ExpiryTrendCard(stats: DashboardStats) {
+    val total = stats.trend.sumOf { it.count }
+    ChartCard(
+        title = "未来 7 天过期趋势",
+        subtitle = if (total > 0) {
+            "按到期日期统计，共 $total 条；数字为每日到期条目数"
+        } else {
+            "按到期日期统计未来 7 天到期的库存条目"
+        },
+    ) {
+        if (total == 0) {
+            // 有库存但未来 7 天没有到期项时，不画空坐标系，直接给出明确空态。
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(150.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "○",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = "未来 7 天暂无即将到期的食材",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            }
+        } else {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                // 横屏/平板时限制最大高度，避免折线图把首屏撑得过长。
+                val chartHeight = (maxWidth * 0.46f).coerceIn(190.dp, 280.dp)
+                ExpiringTrendChart(
+                    points = stats.trend,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(chartHeight),
+                )
+            }
         }
     }
 }

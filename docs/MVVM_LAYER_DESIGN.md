@@ -329,22 +329,31 @@ interface OnlineRecipeRepository {
 
 ```kotlin
 interface DashboardRepository {
-    suspend fun loadIngredients(): Result<List<DashboardIngredient>>
+    suspend fun loadIngredients(forceRefresh: Boolean = false): Result<List<DashboardIngredient>>
     fun observeIngredients(): Flow<Result<List<DashboardIngredient>>>
+    fun invalidateCache()
 }
 
-class IngredientProviderClient(private val context: Context) {
+interface DashboardIngredientSource {
     suspend fun loadIngredients(): Result<List<DashboardIngredient>>
-    fun observeIngredients(): Flow<Result<List<DashboardIngredient>>>
+    fun observeIngredientChanges(): Flow<Unit>
+}
+
+class IngredientProviderClient(
+    private val context: Context,
+) : DashboardIngredientSource {
+    override suspend fun loadIngredients(): Result<List<DashboardIngredient>>
+    override fun observeIngredientChanges(): Flow<Unit>
 }
 ```
 
 - `IngredientProviderClient` 先 `resolveContentProvider` 判断主 App 是否安装，再 `ContentResolver.query()`；不打开 `fridge.db`。
-- `observeIngredients()` 用 `callbackFlow + ContentObserver` 监听 Provider URI；首次订阅立即查询，后续主 App `notifyChange` 自动重查，`conflate()` 合并高频写入。
+- `observeIngredientChanges()` 用 `callbackFlow + ContentObserver` 监听 Provider URI；只发变更信号，首次查询由 Repository 负责；`conflate()` 合并高频写入。
 - Cursor 映射为 `DashboardIngredient`（id/typeId/name/category/storedAt/shelfLifeDays/quantity/unit/labels）。
 - `query` 在 `Dispatchers.IO` 执行；`SecurityException` → 权限不足，`IllegalArgumentException` → 主 App 不可用，其他异常 → 查询失败。
-- `DefaultDashboardRepository` 只读转发；统计由 `DashboardStatsCalculator` 在 Default 线程完成。
-- 统计口径按库存条目数：`totalCount=ingredients.size`，`expiringCount` 为 0..3 天，`expiredCount` 为负数，分类按 count 降序。
+- `DefaultDashboardRepository` 维护 60 秒进程内缓存（`System.nanoTime()`），`loadIngredients(forceRefresh=true)` 绕过；失败清缓存；`observeIngredients()` 先发缓存/查询，再订阅变更并强制刷新。
+- `DashboardApplication` 持有进程级 Repository，Activity 重建仍复用缓存；统计由 `DashboardStatsCalculator` 在 Default 线程完成。
+- 统计口径按库存条目数：`totalCount=ingredients.size`，`expiringCount` 为 0..3 天，`expiredCount` 为负数，分类按 count 降序；趋势为今天起 7 天按到期日聚合。
 - CSV 导出见 5.6；导出页只展示字段/位置/权限说明，实际写文件由 ViewModel 触发。
 
 ### 5.6 看板 CSV 导出链路
@@ -676,8 +685,10 @@ class DashboardHomeViewModel(
     private val exporter: DashboardCsvExporter,
 ) : ViewModel() {
     val uiState: StateFlow<DashboardUiState>
+    val isRefreshing: StateFlow<Boolean>
     val exportState: StateFlow<DashboardExportUiState>
     fun retry()
+    fun refresh()
     fun exportCsv()
     fun clearExportResult()
 
@@ -687,12 +698,13 @@ class DashboardHomeViewModel(
 }
 ```
 
-- `retrySignal.flatMapLatest` 订阅 `repository.observeIngredients()`；每次订阅先发 `Loading`，结果为空 → `Empty`，成功后在 `Dispatchers.Default` 调用 `DashboardStatsCalculator.calculate()`，发射 `Success(DashboardHomeContent(stats, ingredients))`，失败 → `Error(title, message)`。
-- 主 App 写入触发 Provider `notifyChange` 后，Flow 自动重查并刷新统计/饼图；`retry()` 只用于错误恢复。
+- `retrySignal.flatMapLatest` 订阅 `repository.observeIngredients()`；首次加载/错误重试先发 `Loading`，结果为空 → `Empty`，成功后在 `Dispatchers.Default` 调用 `DashboardStatsCalculator.calculate()`，发射 `Success(DashboardHomeContent(stats, ingredients))`，失败 → `Error(title, message)`。
+- 主 App 写入触发 `notifyChange` 后，Flow 自动重查并刷新统计/饼图/趋势；`retry()` 用于错误恢复并清缓存。
+- `refresh()` 防重入、清缓存、`isRefreshing=true`、递增 `retrySignal`；手动刷新期间不再 emit 全屏 `Loading`，保留旧 Success，结果至少展示 450ms 后复位；首次加载仍走全屏 Loading。
 - `stateIn(viewModelScope, WhileSubscribed(5_000), Loading)`；查询在 `Dispatchers.IO`，统计在 `Dispatchers.Default`。
 - `Error` 文案由 `DashboardDataException.toDashboardUserMessage()` 统一提供：未安装/权限不足/查询失败。
-- `exportCsv()`：先防重入置 `isExporting=true`，重新调用 `repository.loadIngredients()`；空数据直接失败；否则在 `Dispatchers.IO` 调 `DashboardCsvFormatter` + `exporter.export`，写 `result`，最后复位。
-- 导出失败不改变 `uiState`；统计/饼图仍可浏览。UI 只消费 `exportState` 弹窗，不直接写文件。
+- `exportCsv()`：先防重入置 `isExporting=true`，调用 `repository.loadIngredients(forceRefresh=true)`；空数据直接失败；否则在 `Dispatchers.IO` 调 `DashboardCsvFormatter` + `exporter.export`，写 `result`，最后复位。
+- 导出失败不改变 `uiState`；统计/饼图/趋势仍可浏览。UI 只消费 `exportState` 弹窗，不直接写文件。
 
 ### 6.10 SettingsViewModel
 
@@ -851,14 +863,15 @@ ViewModel 由 `FridgeNavHost` 用 `viewModel(factory = ...)` 创建，Repository
 - `NotificationPermissionBanner`：Android 13+ 说明/申请/拒绝/永久拒绝“去设置”，未授权仍可查看状态。
 - `AppSettingsTest` 3 个、`ExpiryCalculatorTest` 5 个、`ExpiryReminderSchedulerTest` 5 个、`RecipeMatcherTest` 6 个，主 App 共 19 个 JVM 单测通过。
 - 主 App `IngredientContentProvider`：signature 读写权限、只读 query、列白名单、MatrixCursor 输出。
-- 看板 `DashboardHomeViewModel` + `DashboardRepository` + `IngredientProviderClient`：ContentResolver 数据通道、四态、未安装/权限/查询错误降级。
-- `DashboardStatsCalculator`：总条目、0..3 天临期、已过期、分类条目数；`DashboardStatsCalculatorTest` 3 个 JVM 用例通过。
-- 看板三张指标卡 + MPAndroidChart 分类饼图。
-- 看板 CSV 导出：`DashboardCsvFormatter`、`AndroidDashboardCsvExporter`、MediaStore/旧版文件、FileProvider、权限/失败弹窗；`DashboardCsvFormatterTest` 5 个 JVM 用例通过。
-- 看板单测共 8 个（统计 3 + CSV 5），主 App 19 个，全项目 27 个 JVM 单测通过。
+- 看板 `DashboardHomeViewModel` + `DashboardRepository` + `IngredientProviderClient`：ContentResolver 数据通道、四态、未安装/权限/查询错误降级、60 秒缓存、手动强制刷新。
+- `DashboardStatsCalculator`：总条目、0..3 天临期、已过期、分类条目数、未来 7 天趋势；`DashboardStatsCalculatorTest` 5 个 JVM 用例通过。
+- 看板三张指标卡 + MPAndroidChart 分类饼图 + 趋势折线图；刷新保留内容，顶部进度至少 450ms。
+- 看板 CSV 导出：`DashboardCsvFormatter`、`AndroidDashboardCsvExporter`、MediaStore/旧版文件、FileProvider、权限/失败弹窗；`DashboardCsvFormatterTest` 6 个 JVM 用例通过。
+- `DashboardRepositoryCacheTest` 2 个用例通过（TTL 命中、强制刷新/清缓存/失败清空）。
+- 看板单测共 13 个（统计 5 + 缓存 2 + CSV 6），主 App 19 个，全项目 32 个 JVM 单测通过。
 
 未完成（下一轮）：
 
 - 本地菜谱关键词搜索（当前搜索只针对在线 API）。
 - 匹配的数量/单位换算、临期优先、别名归一。
-- 看板近 7 天趋势折线图、按日期范围导出、云端上传。
+- 按日期范围导出、趋势区间切换、云端上传。

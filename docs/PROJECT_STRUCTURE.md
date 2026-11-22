@@ -148,7 +148,7 @@ Fridge/
       │  │  │  ├─ export/
       │  │  │  │  └─ DashboardCsvFormatter.kt # BOM/CRLF/转义/状态/数量格式
       │  │  │  └─ stats/
-      │  │  │     └─ DashboardStatsCalculator.kt # 总数/临期/过期/分类统计
+      │  │  │     └─ DashboardStatsCalculator.kt # 总数/临期/过期/分类 + 未来 7 天趋势
       │  │  ├─ data/
       │  │  │  ├─ export/
       │  │  │  │  └─ DashboardCsvExporter.kt # cache + MediaStore/旧版文件 + FileProvider
@@ -156,11 +156,12 @@ Fridge/
       │  │  │  │  └─ DashboardIngredient.kt # 只读投影 + DashboardDataException
       │  │  │  ├─ provider/
       │  │  │  │  ├─ IngredientProviderContract.kt # 与主 App 同步的 URI/列契约
-      │  │  │  │  └─ IngredientProviderClient.kt # ContentResolver 查询与 Cursor 映射
+      │  │  │  │  └─ IngredientProviderClient.kt # ContentResolver 查询/Cursor 映射 + DashboardIngredientSource 接口
       │  │  │  └─ repository/
-      │  │  │     └─ DashboardRepository.kt # 数据通道接口 + 默认实现
+      │  │  │     └─ DashboardRepository.kt # 数据通道接口 + 默认实现 + 60s 缓存/强制刷新
       │  │  └─ ui/
-      │  │     ├─ DashboardApp.kt     # 主页/导出说明页 + 导出/权限/结果弹窗 + BackHandler
+      │  │     ├─ DashboardApplication.kt # 进程级 DashboardRepository 单例（缓存跨 Activity）
+      │  │     ├─ DashboardApp.kt     # 主页/导出说明页 + 刷新 + 导出/权限/结果弹窗 + BackHandler
       │  │     ├─ charts/
       │  │     │  └─ DashboardCharts.kt # MPAndroidChart 饼图/折线图封装
       │  │     ├─ components/
@@ -182,8 +183,9 @@ Fridge/
       │        └─ themes.xml
       └─ test/
          └─ java/com/fridge/dashboard/
-            ├─ domain/export/DashboardCsvFormatterTest.kt # 5 个 CSV 单测
-            └─ domain/stats/DashboardStatsCalculatorTest.kt # 统计口径单测
+            ├─ data/repository/DashboardRepositoryCacheTest.kt # 2 个缓存单测
+            ├─ domain/export/DashboardCsvFormatterTest.kt # 6 个 CSV 单测
+            └─ domain/stats/DashboardStatsCalculatorTest.kt # 5 个统计/趋势单测
 ```
 
 ## 文件职责补充
@@ -242,7 +244,7 @@ Fridge/
 - `data/provider/IngredientProviderClient.kt`：`resolveContentProvider` 判主 App 是否安装，`ContentResolver.query` 读取并映射 `DashboardIngredient`；同时用 `ContentObserver` + `callbackFlow` 暴露 `observeIngredients()`，主 App 写入后自动刷新。
 - `data/repository/DashboardRepository.kt`：只读转发，页面不直接使用 `ContentResolver`。
 - `domain/stats/DashboardStatsCalculator.kt`：纯 Kotlin 统计；总条目、0..3 天临期、已过期、分类条目数；不依赖 Android。
-- `DashboardHomeViewModel.kt`：`retrySignal` 触发加载，输出 Loading/Empty/Error/Success；在 `Dispatchers.Default` 调用统计器；`factory(context)` 组装 Client/Repository。
+- `DashboardHomeViewModel.kt`：`retrySignal` 触发加载，输出 Loading/Empty/Error/Success；手动刷新单独维护 `isRefreshing` 并至少展示 450ms；在 `Dispatchers.Default` 调用统计器；`factory(context)` 从 `DashboardApplication` 取进程级 Repository。
 - `DashboardHomeScreen.kt`：三张指标卡、分类饼图、数据来源、食材明细与导出入口；窄屏自适应图表高度。
 - `DashboardCharts.kt`：MPAndroidChart 饼图（分类 + 条目数标签）与预留折线图封装。
 - `data/export/DashboardCsvExporter.kt`：cache 副本 + MediaStore（API 29+）/旧版公共 Downloads（24–28）+ FileProvider URI；异常映射权限/空间/写入。

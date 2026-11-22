@@ -3,6 +3,7 @@ package com.fridge.dashboard.domain.stats
 import com.fridge.dashboard.data.model.DashboardIngredient
 import com.fridge.dashboard.ui.model.CategoryStat
 import com.fridge.dashboard.ui.model.DashboardStats
+import com.fridge.dashboard.ui.model.TrendPoint
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -22,6 +23,9 @@ object DashboardStatsCalculator {
 
     const val EXPIRING_SOON_DAYS = 3
 
+    /** 趋势图统计今天起未来 7 天（含今天）。 */
+    const val TREND_DAYS = 7
+
     fun calculate(
         ingredients: List<DashboardIngredient>,
         today: LocalDate = LocalDate.now(),
@@ -32,6 +36,18 @@ object DashboardStatsCalculator {
             .groupingBy { it.category.ifBlank { "未分类" } }
             .eachCount()
 
+        // 先按到期日聚合，再映射到今天起 7 个连续日期；没有食材的日期补 0。
+        val expiryCounts = ingredients
+            .groupingBy { expiryDate(it, zoneId) }
+            .eachCount()
+        val trend = (0 until TREND_DAYS).map { offset ->
+            val date = today.plusDays(offset.toLong())
+            TrendPoint(
+                label = "${date.monthValue}/${date.dayOfMonth}",
+                count = expiryCounts[date] ?: 0,
+            )
+        }
+
         return DashboardStats(
             totalCount = ingredients.size,
             expiringCount = daysLeftList.count { it in 0..EXPIRING_SOON_DAYS },
@@ -39,6 +55,7 @@ object DashboardStatsCalculator {
             categories = categoryCounts
                 .map { (category, count) -> CategoryStat(name = category, count = count) }
                 .sortedWith(compareByDescending<CategoryStat> { it.count }.thenBy { it.name }),
+            trend = trend,
         )
     }
 

@@ -23,6 +23,8 @@ import com.github.mikephil.charting.data.PieData
 import com.github.mikephil.charting.data.PieDataSet
 import com.github.mikephil.charting.data.PieEntry
 import com.github.mikephil.charting.formatter.IndexAxisValueFormatter
+import com.github.mikephil.charting.formatter.ValueFormatter
+import kotlin.math.roundToInt
 
 /**
  * 食材分类占比饼图（MPAndroidChart）。
@@ -120,8 +122,15 @@ private fun bindTrendChart(chart: LineChart, points: List<TrendPoint>, textColor
     chart.description.isEnabled = false
     chart.legend.isEnabled = false
     chart.setTouchEnabled(false)
+    chart.setScaleEnabled(false)
+    chart.setPinchZoom(false)
+    chart.isDoubleTapToZoomEnabled = false
     chart.setNoDataText("暂无趋势数据")
-    chart.setExtraOffsets(4f, 8f, 12f, 4f)
+    chart.setExtraOffsets(4f, 8f, 12f, 8f)
+
+    val intFormatter = object : ValueFormatter() {
+        override fun getFormattedValue(value: Float): String = value.roundToInt().toString()
+    }
 
     chart.axisRight.isEnabled = false
     chart.axisLeft.axisMinimum = 0f
@@ -130,31 +139,43 @@ private fun bindTrendChart(chart: LineChart, points: List<TrendPoint>, textColor
     chart.axisLeft.textSize = 10f
     chart.axisLeft.setDrawAxisLine(false)
     chart.axisLeft.gridColor = 0x22000000
+    chart.axisLeft.valueFormatter = intFormatter
 
     chart.xAxis.position = XAxis.XAxisPosition.BOTTOM
     chart.xAxis.setDrawGridLines(false)
     chart.xAxis.setDrawAxisLine(false)
     chart.xAxis.granularity = 1f
+    chart.xAxis.labelCount = points.size
     chart.xAxis.textColor = textColor
     chart.xAxis.textSize = 10f
+    chart.xAxis.setAvoidFirstLastClipping(true)
     chart.xAxis.valueFormatter = IndexAxisValueFormatter(points.map { it.label }.toTypedArray())
 
     val lineColor = ContextCompat.getColor(chart.context, R.color.chart_orange)
     val entries = points.mapIndexed { index, point ->
         Entry(index.toFloat(), point.count.toFloat())
     }
-    val dataSet = LineDataSet(entries, "临期数量").apply {
+    val dataSet = LineDataSet(entries, "到期条目数").apply {
         color = lineColor
         setCircleColor(lineColor)
         lineWidth = 2.5f
         circleRadius = 4f
-        setDrawCircleHole(false)
-        setDrawValues(false)
-        mode = LineDataSet.Mode.CUBIC_BEZIER
+        setDrawCircleHole(true)
+        circleHoleColor = Color.WHITE
+        // 每个数据点直接显示具体数值，满足“标注每日具体数值”。
+        setDrawValues(true)
+        valueTextColor = textColor
+        valueTextSize = 10f
+        valueFormatter = intFormatter
+        // 线性连接避免贝塞尔曲线在 0 附近产生负值视觉误导。
+        mode = LineDataSet.Mode.LINEAR
         setDrawFilled(true)
         fillColor = lineColor
-        fillAlpha = 40
+        fillAlpha = 36
     }
-    chart.data = LineData(dataSet)
+    chart.data = LineData(dataSet).apply {
+        setValueTextColor(textColor)
+        setValueTextSize(10f)
+    }
     chart.invalidate()
 }

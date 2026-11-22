@@ -50,6 +50,9 @@
 - 主 App 写入后通过 Room `InvalidationTracker` → `notifyChange` → 看板 `ContentObserver` 自动刷新。
 - 三项核心统计：总食材数、临期数、已过期数（按库存条目数统计，不直接相加不同单位数量）。
 - MPAndroidChart 环形饼图：分类名称 + 条目数、中心总数、9 色区分、响应式高度。
+- 未来 7 天过期趋势折线图：按到期日期聚合，空日期补 0，数据点标注每日条目数；无临期显示空态。
+- 顶栏手动刷新：清缓存、强制查询，保留旧内容并显示“刷新中…”/顶部进度至少 450ms。
+- 60 秒进程级缓存：重复打开复用结果；主 App 变更与手动刷新强制最新。
 - CSV 导出：名称、分类、数量、单位、入库时间、剩余保质期、过期状态；UTF-8 BOM + CRLF。
   - Android 10+ 写 MediaStore Downloads，无需存储权限。
   - Android 7–9 才申请 WRITE 权限；拒绝/永久拒绝不阻断统计浏览。
@@ -60,12 +63,12 @@
 - Kotlin + Jetpack Compose + Navigation + ViewModel + Room + Retrofit/OkHttp + WorkManager + Preferences DataStore + MPAndroidChart。
 - MVVM 分层：Entity / Dao / Repository / ViewModel / UI，Domain 纯算法独立。
 - 主线程不做数据库、网络、文件 IO；统计与匹配切到 `Dispatchers.Default` / `Dispatchers.IO`。
-- 单元测试覆盖：食材匹配、保质期计算、调度时间、设置归一化、看板统计、CSV 格式化与编码。
+- 单元测试覆盖：食材匹配、保质期计算、调度时间、设置归一化、看板统计/趋势、缓存 TTL、CSV 格式化与编码。
 - 双 App 共用同一套绿/橙语义色、6/10/14/18/24dp 圆角与卡片阴影规范。
 
 ## 四、当前边界
 
 - 匹配只看“品类是否有库存”，不判断数量是否足够，也不优先消耗临期食材。
 - 在线菜谱依赖 TheMealDB 英文接口，暂无中文菜谱源、图片、收藏与分页。
-- 看板暂无趋势折线图、按日期范围导出。
+- 看板趋势固定未来 7 天，暂无日期范围切换与按范围导出。
 - 通知为每日一次巡检（时间可配置），受系统省电策略影响，不是精确到分钟的到期闹钟。

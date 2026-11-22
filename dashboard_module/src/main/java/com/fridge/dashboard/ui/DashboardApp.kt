@@ -68,6 +68,7 @@ fun DashboardApp() {
         factory = DashboardHomeViewModel.factory(context),
     )
     val homeState by homeViewModel.state.collectAsStateWithLifecycle()
+    val isRefreshing by homeViewModel.isRefreshing.collectAsStateWithLifecycle()
     val exportState by homeViewModel.exportState.collectAsStateWithLifecycle()
 
     val openCsv: (String) -> Boolean = { uriString ->
@@ -149,6 +150,12 @@ fun DashboardApp() {
                 actions = {
                     if (isHome) {
                         TextButton(
+                            onClick = homeViewModel::refresh,
+                            enabled = !isRefreshing,
+                        ) {
+                            Text(if (isRefreshing) "刷新中…" else "刷新")
+                        }
+                        TextButton(
                             onClick = { requestExport() },
                             enabled = !exportState.isExporting,
                         ) {
@@ -167,6 +174,7 @@ fun DashboardApp() {
             DashboardScreen.HOME -> DashboardHomeScreen(
                 state = homeState,
                 onRetry = homeViewModel::retry,
+                isRefreshing = isRefreshing,
                 isExporting = exportState.isExporting,
                 onExportClick = { requestExport() },
                 onOpenExportPage = { screen = DashboardScreen.EXPORT },

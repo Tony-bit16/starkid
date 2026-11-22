@@ -58,7 +58,7 @@ ViewModel
 - ViewModel：食材 3 个、本地菜谱 3 个、在线搜索/详情 2 个，通过 `StateFlow` 暴露四态或表单/操作状态；菜谱列表/详情额外观察库存 Flow 并调用匹配算法。
 - 菜谱新增/编辑共用 `RecipeForm`，食材清单按行动态增删；菜谱详情通过 Room Flow 自动刷新。
 - 在线菜谱详情保存时复用 `RecipeRepository.saveRecipe`，本地列表由同一个 Room Flow 自动刷新。
-- 看板已接真实数据通道：`DashboardHomeViewModel` → `DashboardRepository` → `IngredientProviderClient` → `ContentResolver`；读取后在 `domain/stats/DashboardStatsCalculator` 聚合，主页用三张指标卡 + MPAndroidChart 饼图展示。
+- 看板已接真实数据通道：`DashboardHomeViewModel` → `DashboardRepository` → `IngredientProviderClient` → `ContentResolver`；读取后在 `domain/stats/DashboardStatsCalculator` 聚合，主页用三张指标卡 + MPAndroidChart 饼图 + 未来 7 天趋势折线图展示；Repository 提供 60 秒进程级缓存与手动强制刷新。
 - 看板 CSV 导出：`DashboardHomeViewModel.exportCsv()` 重新读取 Provider，交给 `DashboardCsvFormatter`（纯格式转换）与 `AndroidDashboardCsvExporter`（cache + MediaStore/旧版文件 + FileProvider URI）；导出状态独立于页面四态。
 - `FridgeApplication` 懒加载数据库与 Repository，并暴露 `ingredientRepository`、`recipeRepository`、`onlineRecipeRepository`、`settingsRepository` 单例；`onCreate` 创建 `expiry_reminder` 渠道，读取 DataStore 首个配置后按用户时间 `ensureScheduled`。
 - `data/settings/`：`AppSettings` 值对象 + `SettingsRepository` 契约 + `DefaultSettingsRepository`；Preferences DataStore 文件名 `fridge_settings`，页面与 Worker 都只依赖 Repository。
@@ -156,25 +156,32 @@ ExpiryCheckWorker.doWork（Dispatchers.IO）
 - `NotificationPermissionBanner` 在 `ON_RESUME` 重新检查，设置页返回后自动消失。
 - Worker 的查询与通知构造全部在后台线程；通知内容只包含名称与剩余天数，不包含数量/备注等敏感信息。
 
-### 2.6 看板统计与饼图数据流
+### 2.6 看板统计、趋势与刷新数据流
 
 ```text
-DashboardHomeScreen
+DashboardHomeScreen（顶栏刷新 / 导出）
         │ 收集 DashboardUiState（Loading / Empty / Error / Success）
         ▼
 DashboardHomeViewModel
-        ├─ DashboardRepository.loadIngredients()
-        │       └─ IngredientProviderClient → ContentResolver（Dispatchers.IO）
+        ├─ 首次 / 重试 / 刷新：retrySignal.flatMapLatest
+        │       └─ DashboardRepository.observeIngredients()
+        │               ├─ 60s 内存缓存命中 → 直接发射
+        │               ├─ DashboardIngredientSource（ContentResolver，Dispatchers.IO）
+        │               └─ ContentObserver 变更 → forceRefresh
         └─ DashboardStatsCalculator.calculate()（Dispatchers.Default）
                  ├─ 总条目数、0..3 天临期、负数已过期
-                 └─ 分类条目数（按数量降序，空分类 → 未分类）
-                         └─ DashboardHomeContent → 指标卡 + CategoryPieChart
+                 ├─ 分类条目数（按数量降序，空分类 → 未分类）
+                 └─ 未来 7 天按到期日聚合（空日期补 0）
+                         └─ DashboardHomeContent → 指标卡 + 饼图 + 趋势折线图
 ```
 
 - 读取与统计分属 IO / Default 两条后台链路，主线程只消费结果。
 - 分类占比按库存条目数统计；不同单位（kg、L、个）的 quantity 不相加，避免产生无意义的总量。
 - 饼图使用 MPAndroidChart `PieChart`，每个 `PieEntry` 的 label 为“分类 + 条目数”，中心文字显示总条数；图例关闭，避免与扇区标签重复。
+- 趋势图使用 `LineChart`，今天起连续 7 天，X 轴为 `M/d`，Y 轴整数；数据点开启 drawValues，无数据时由页面显示空态。
+- 手动刷新保留旧内容：`isRefreshing` 单独驱动顶部进度条与“刷新中…”，不把 `Success` 切回 `Loading`；结果至少展示 450ms 后复位。
 - 统计结果与原始明细一起进入 Success，避免页面或重组时重复计算。
+- 缓存失败不写缓存，成功结果按 `System.nanoTime()` 记录 60 秒 TTL；主 App `notifyChange` 与手动刷新调用 `forceRefresh=true` 绕过缓存。
 
 ### 2.7 设置与配置数据流
 
@@ -408,7 +415,7 @@ sealed interface UiState<out T> {
 
 - DAO：内存 Room 数据库，覆盖插入、到期区间查询、关联查询、级联删除。
 - Repository：用 fake DAO 测试校验、到期天数、品类复用。
-- Domain：`RecipeMatcherTest` 覆盖三级分类、稳定排序、已有/缺少名称、空库存、空菜谱；`ExpiryCalculatorTest` 覆盖到期日、默认/自定义 warningDays、夏令时边界；`DashboardStatsCalculatorTest` 覆盖总数/临期/过期/分类、空分类回退与跨月边界。
+- Domain：`RecipeMatcherTest` 覆盖三级分类、稳定排序、已有/缺少名称、空库存、空菜谱；`ExpiryCalculatorTest` 覆盖到期日、默认/自定义 warningDays、夏令时边界；`DashboardStatsCalculatorTest` 覆盖总数/临期/过期/分类、空分类回退、跨月边界与 7 天趋势窗口；`DashboardRepositoryCacheTest` 覆盖 TTL 命中、强制刷新与失败清缓存。
 - Settings：`AppSettingsTest` 覆盖默认值、normalized 边界、时间字段收敛。
 - Work：`ExpiryReminderSchedulerTest` 覆盖默认/custom 09:00 前/后/准点初始延迟与越界收敛；Worker 通知合并与权限降级后续可用 `WorkManagerTestInitHelper` 补。
 - ViewModel：`kotlinx-coroutines-test` + Turbine 验证四态顺序。
@@ -435,6 +442,7 @@ sealed interface UiState<out T> {
 - Android 13 以下无运行时通知权限，但用户仍可在系统设置关闭通知；`canPost()` 已覆盖该场景。
 - 看板与主 App 的 release 签名必须统一，否则 signature 权限会拒绝。
 - 看板统计按“库存条目数”而非 quantity 求和：不同单位不能直接相加，因此页面明确标注口径；分类很多时饼图标签可能拥挤，后续可合并“其他”或增加交互图例。
+- 看板缓存为进程内 60 秒：Activity 重建可复用，但进程被杀后首次进入仍会查询；主 App 变更通过 ContentObserver 强制刷新，手动刷新绕过 TTL。趋势固定 7 天，暂不支持区间切换。
 - 看板独立实现了一份到期日公式；主 App 修改保质期口径时必须同步 `DashboardStatsCalculator`，否则两端统计会不一致。
 - 到期日已改为按本地日历日计算，跨时区/夏令时切换时以设备当前时区为准；若用户频繁改时区，剩余天数可能跳变。
 - 下拉刷新会重新订阅 Room Flow 或重发网络请求；同一页面快速连续刷新时，旧请求可能仍在进行，在线搜索已用 `requestId` 丢弃过期结果。
